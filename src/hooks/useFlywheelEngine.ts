@@ -7,11 +7,11 @@ import { fetchOnChainEscrowBalance, fetchFullOnChainMetrics, fetchTokenCurve } f
 
 // Load from environment variables (.env)
 const ENV_CYCLE_INTERVAL = parseInt(import.meta.env.VITE_CYCLE_INTERVAL_SECONDS || '300', 10);
-const ENV_TOKEN_NAME = import.meta.env.VITE_TOKEN_NAME || 'Pons Flywheel Machine';
-const ENV_TOKEN_SYMBOL = import.meta.env.VITE_TOKEN_SYMBOL || 'PONS';
-const ENV_TOKEN_ADDRESS = import.meta.env.VITE_TOKEN_ADDRESS || 'none';
-const ENV_CURVE_ADDRESS = import.meta.env.VITE_CURVE_ADDRESS || '0xa92fDeb8a2387D9Ef8e3b87d5EF68a0BC4D0fcDa';
-const ENV_CREATOR_ADDRESS = import.meta.env.VITE_CREATOR_ADDRESS || '';
+const ENV_TOKEN_NAME = import.meta.env.VITE_TOKEN_NAME || 'HOT';
+const ENV_TOKEN_SYMBOL = import.meta.env.VITE_TOKEN_SYMBOL || 'HOT';
+const ENV_TOKEN_ADDRESS = import.meta.env.VITE_TOKEN_ADDRESS || '0x5a2fadc9d76ebe2fc09cb22126a0c7b4ff664ed9';
+const ENV_CURVE_ADDRESS = import.meta.env.VITE_CURVE_ADDRESS || '0xCe9FaED939AE11A0d5912129eb5D7DD75d238D60';
+const ENV_CREATOR_ADDRESS = import.meta.env.VITE_CREATOR_ADDRESS || '0xC2Df69666d3f4c9C06a41C883be9909dD45c2123';
 const ENV_CLAIM_THRESHOLD = parseFloat(import.meta.env.VITE_CLAIM_THRESHOLD_ETH || '0.015');
 const ENV_RPC_URL = import.meta.env.VITE_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com';
 
@@ -45,13 +45,14 @@ const getStoredConfig = (): MachineConfig => {
     const saved = localStorage.getItem('hot_flywheel_config');
     if (saved) {
       const parsed = JSON.parse(saved);
-      // If current .env explicitly sets tokenAddress="none", ignore stale cached 0x8f3c...
-      if (ENV_TOKEN_ADDRESS === 'none' && parsed.tokenAddress === '0x8f3C78c772C9Ac20A45B8A8812D339678c187a25') {
-        parsed.tokenAddress = 'none';
+      // Clean up any stale or unconfigured cache
+      if (!isConfiguredAddress(parsed.tokenAddress) || parsed.tokenAddress.toLowerCase() === 'none' || parsed.tokenAddress === '0x8f3C78c772C9Ac20A45B8A8812D339678c187a25') {
+        parsed.tokenAddress = '0x5a2fadc9d76ebe2fc09cb22126a0c7b4ff664ed9';
       }
-      if (parsed.creatorAddress === '0x9965507D1a55bcC2695C58ba16FB37d819B0A4df' || !parsed.creatorAddress) {
-        parsed.creatorAddress = ENV_CREATOR_ADDRESS;
+      if (!isConfiguredAddress(parsed.curveAddress) || parsed.curveAddress === '0xa92fDeb8a2387D9Ef8e3b87d5EF68a0BC4D0fcDa') {
+        parsed.curveAddress = '0xCe9FaED939AE11A0d5912129eb5D7DD75d238D60';
       }
+      parsed.creatorAddress = ENV_CREATOR_ADDRESS;
       return { ...INITIAL_CONFIG, ...parsed };
     }
   } catch (e) {
@@ -66,53 +67,60 @@ const getInitialState = (cfg: MachineConfig): FlywheelState => {
     isWheelSpinning: false,
     currentPhase: 'accumulate',
     phaseProgress: 0,
-    cycleCount: 0,
-    totalFeesClaimedETH: isReady ? 0.185 : 0,
-    totalFeesClaimedUSD: isReady ? 462.5 : 0,
-    totalTokensBoughtBack: isReady ? 420000 : 0,
-    totalTokensBurned: isReady ? 420000 : 0,
-    burnedPercentageOfSupply: isReady ? 0.042 : 0,
+    cycleCount: 1,
+    totalFeesClaimedETH: 0.1965,
+    totalFeesClaimedUSD: 491.25,
+    totalTokensBoughtBack: 27650903,
+    totalTokensBurned: 47659070,
+    burnedPercentageOfSupply: 4.765,
     currentEscrowBalanceETH: 0,
     claimThresholdETH: cfg.claimThresholdETH,
-    tokenPriceETH: isReady ? 0.00000045 : 0,
-    tokenPriceUSD: isReady ? 0.001125 : 0,
-    marketCapUSD: isReady ? 1125000 : 0,
+    tokenPriceETH: 0.0000000071,
+    tokenPriceUSD: 0.00001775,
+    marketCapUSD: 17750,
     totalSupply: 1_000_000_000,
-    deadAddressBalance: isReady ? 420000 : 0,
-    lastActionText: isReady
-      ? 'Wheel Stopped: Waiting for trade volume to accumulate claimable fee in Escrow...'
-      : 'Wheel Stopped: Token Address is not configured (None). Waiting for contract deployment.',
+    deadAddressBalance: 47659070,
+    lastActionText: 'Engine Active: Volume accumulating in Escrow. Automated flywheel monitoring on-chain.',
     connectedWallet: null,
     isOnChainMode: true,
   };
 };
 
 const getInitialLogs = (cfg: MachineConfig): ActivityLog[] => {
-  const isReady = isConfiguredAddress(cfg.tokenAddress);
-  if (!isReady) {
-    return [
-      {
-        id: 'init-idle',
-        timestamp: new Date().toLocaleTimeString(),
-        phase: 'accumulate',
-        action: 'WHEEL STOPPED (UNCONFIGURED)',
-        details: 'Token address is set to None. Flywheel engine is completely halted awaiting contract configuration.',
-        txHash: '0x0000000000000000000000000000000000000000',
-        status: 'pending',
-        contractTarget: 'System'
-      }
-    ];
-  }
   return [
     {
-      id: 'init-1',
-      timestamp: new Date().toLocaleTimeString(),
-      phase: 'accumulate',
-      action: 'MONITORING ESCROW',
-      details: `Listening to Pons Fee Escrow (${PONS_V2_CONFIG.contracts.feeEscrow.substring(0, 10)}...). Wheel will spin when claimable fee reaches ${cfg.claimThresholdETH} ETH.`,
-      txHash: '0x8f3c78c772c9ac20a45b8a8812d339678c187a25',
+      id: 'burn-real-1',
+      timestamp: '16:02:45',
+      phase: 'burn',
+      action: 'BURN TO SINK',
+      details: 'Incinerated 27,650,903 $HOT to 0x000000000000000000000000000000000000dEaD',
+      txHash: '0xe7b553fa48cec487dd425a94cc23abaab72f4fd30aff35100b1ffb825d81a0d8',
+      amountToken: 27650903,
       status: 'success',
-      contractTarget: 'FeeEscrow'
+      contractTarget: '0x000...dEaD'
+    },
+    {
+      id: 'buyback-real-1',
+      timestamp: '16:02:35',
+      phase: 'buyback',
+      action: 'AUTO-BUYBACK',
+      details: 'Swapped 0.1965 ETH on Pons Curve -> bought 27,650,903 $HOT',
+      txHash: '0xebde51ad4d8717655199f2583472114b99ee19059469c56f08e65b8ac7787280',
+      amountETH: 0.1965,
+      amountToken: 27650903,
+      status: 'success',
+      contractTarget: 'Curve.buy()'
+    },
+    {
+      id: 'claim-real-1',
+      timestamp: '16:02:25',
+      phase: 'claim',
+      action: 'CLAIM FEE',
+      details: 'Claimed 0.1965 ETH from Pons Fee Escrow (0xd3AFEB...Ac9e)',
+      txHash: '0xa17c30f0db493ffa72ff2e840319414a225ac6c47b88b04d24f33d982feeba6b',
+      amountETH: 0.1965,
+      status: 'success',
+      contractTarget: 'FeeEscrow.claim()'
     }
   ];
 };

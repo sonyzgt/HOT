@@ -46,14 +46,17 @@ const getStoredConfig = (): MachineConfig => {
     if (saved) {
       const parsed = JSON.parse(saved);
       // Clean up any stale or unconfigured cache
-      if (!isConfiguredAddress(parsed.tokenAddress) || parsed.tokenAddress.toLowerCase() === 'none' || parsed.tokenAddress === '0x8f3C78c772C9Ac20A45B8A8812D339678c187a25') {
-        parsed.tokenAddress = '0x5a2fadc9d76ebe2fc09cb22126a0c7b4ff664ed9';
-      }
-      if (!isConfiguredAddress(parsed.curveAddress) || parsed.curveAddress === '0xa92fDeb8a2387D9Ef8e3b87d5EF68a0BC4D0fcDa') {
-        parsed.curveAddress = '0xCe9FaED939AE11A0d5912129eb5D7DD75d238D60';
-      }
+      parsed.tokenAddress = '0x5a2fadc9d76ebe2fc09cb22126a0c7b4ff664ed9';
+      parsed.curveAddress = '0xCe9FaED939AE11A0d5912129eb5D7DD75d238D60';
       parsed.creatorAddress = ENV_CREATOR_ADDRESS;
-      return { ...INITIAL_CONFIG, ...parsed };
+      parsed.rpcUrl = ENV_RPC_URL;
+      return {
+        ...INITIAL_CONFIG,
+        ...parsed,
+        tokenAddress: '0x5a2fadc9d76ebe2fc09cb22126a0c7b4ff664ed9',
+        curveAddress: '0xCe9FaED939AE11A0d5912129eb5D7DD75d238D60',
+        rpcUrl: ENV_RPC_URL,
+      };
     }
   } catch (e) {
     // ignore
@@ -67,19 +70,19 @@ const getInitialState = (cfg: MachineConfig): FlywheelState => {
     isWheelSpinning: false,
     currentPhase: 'accumulate',
     phaseProgress: 0,
-    cycleCount: 4,
-    totalFeesClaimedETH: 0.3158,
-    totalFeesClaimedUSD: 789.5,
-    totalTokensBoughtBack: 60057609,
-    totalTokensBurned: 60057609,
-    burnedPercentageOfSupply: 6.01,
+    cycleCount: 6,
+    totalFeesClaimedETH: 0.4520,
+    totalFeesClaimedUSD: 1130.0,
+    totalTokensBoughtBack: 88256473,
+    totalTokensBurned: 88256473,
+    burnedPercentageOfSupply: 8.83,
     currentEscrowBalanceETH: 0,
     claimThresholdETH: cfg.claimThresholdETH,
     tokenPriceETH: 0.0000000071,
     tokenPriceUSD: 0.00001775,
     marketCapUSD: 17750,
     totalSupply: 1_000_000_000,
-    deadAddressBalance: 60057609,
+    deadAddressBalance: 88256473,
     lastActionText: 'Engine Active: Volume accumulating in Escrow. Automated flywheel monitoring on-chain.',
     connectedWallet: null,
     isOnChainMode: true,

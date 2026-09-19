@@ -127,7 +127,8 @@ export async function fetchFullOnChainMetrics(
     if (!tokenAddress || tokenAddress.toLowerCase() === 'none' || !ethers.isAddress(tokenAddress)) {
       return null;
     }
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const activeRpc = (rpcUrl && rpcUrl.includes('chain.robinhood.com')) ? rpcUrl : 'https://rpc.mainnet.chain.robinhood.com';
+    const provider = new ethers.JsonRpcProvider(activeRpc);
 
     // 1. Escrow Balance
     let escrowBalanceETH = 0;

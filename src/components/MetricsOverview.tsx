@@ -12,98 +12,96 @@ export const MetricsOverview: React.FC<MetricsOverviewProps> = ({ state }) => {
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 w-full">
       {/* 1. TOTAL FEES CLAIMED */}
-      <div className="p-4 bg-[#18202c] sketch-box flex flex-col justify-between">
+      <div className="p-2.5 sm:p-4 bg-[#18202c] sketch-box flex flex-col justify-between">
         <div className="flex items-center justify-between">
-          <span className="font-sketch text-xs text-amber-400 uppercase tracking-wider">
+          <span className="font-sketch text-[10px] sm:text-xs text-amber-400 uppercase tracking-wider truncate mr-1">
             Total Fees Claimed
           </span>
-          <div className="w-8 h-8 rounded-lg bg-amber-400/20 text-amber-300 border border-amber-400/40 flex items-center justify-center">
-            <Coins className="w-4 h-4" />
+          <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-amber-400/20 text-amber-300 border border-amber-400/40 flex items-center justify-center shrink-0">
+            <Coins className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
         </div>
 
-        <div className="my-2">
-          <div className="flex items-baseline gap-1.5 font-mono">
-            <span className="text-2xl font-black text-white">
+        <div className="my-1.5 sm:my-2">
+          <div className="flex items-baseline gap-1 font-mono">
+            <span className="text-lg xs:text-xl sm:text-2xl font-black text-white">
               {state.totalFeesClaimedETH.toFixed(4)}
             </span>
-            <span className="text-xs font-bold text-amber-400">ETH</span>
+            <span className="text-[10px] sm:text-xs font-bold text-amber-400">ETH</span>
           </div>
-          <div className="font-hand text-xs text-slate-400">
-            ≈ ${formatNumber(state.totalFeesClaimedUSD)} USD Claimed
+          <div className="font-hand text-[10px] sm:text-xs text-slate-400 truncate">
+            ≈ ${formatNumber(state.totalFeesClaimedUSD)} USD
           </div>
         </div>
 
-        <div className="pt-2 border-t-2 border-dashed border-slate-700/80 flex items-center justify-between font-mono text-[11px] text-slate-400">
-          <span>Escrow Available:</span>
-          <span className="text-amber-300 font-bold">
+        <div className="pt-1.5 sm:pt-2 border-t-2 border-dashed border-slate-700/80 flex items-center justify-between font-mono text-[9px] sm:text-[11px] text-slate-400">
+          <span className="hidden xs:inline">Escrow:</span>
+          <span className="text-amber-300 font-bold truncate">
             {state.currentEscrowBalanceETH.toFixed(4)} ETH
           </span>
         </div>
       </div>
 
       {/* 2. TOTAL BUYBACK */}
-      <div className="p-4 bg-[#18202c] sketch-box flex flex-col justify-between">
+      <div className="p-2.5 sm:p-4 bg-[#18202c] sketch-box flex flex-col justify-between">
         <div className="flex items-center justify-between">
-          <span className="font-sketch text-xs text-emerald-400 uppercase tracking-wider">
-            Total Buyback Volume
+          <span className="font-sketch text-[10px] sm:text-xs text-emerald-400 uppercase tracking-wider truncate mr-1">
+            Buyback Volume
           </span>
-          <div className="w-8 h-8 rounded-lg bg-emerald-400/20 text-emerald-300 border border-emerald-400/40 flex items-center justify-center">
-            <ShoppingBag className="w-4 h-4" />
+          <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-emerald-400/20 text-emerald-300 border border-emerald-400/40 flex items-center justify-center shrink-0">
+            <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
         </div>
 
-        <div className="my-2">
-          <div className="flex items-baseline gap-1.5 font-mono">
-            <span className="text-2xl font-black text-white">
+        <div className="my-1.5 sm:my-2">
+          <div className="flex items-baseline gap-1 font-mono">
+            <span className="text-lg xs:text-xl sm:text-2xl font-black text-white">
               {formatNumber(state.totalTokensBoughtBack)}
             </span>
-            <span className="text-xs font-bold text-emerald-400">TOKENS</span>
           </div>
-          <div className="font-hand text-xs text-emerald-400 flex items-center gap-1">
-            <ArrowUpRight className="w-3.5 h-3.5" />
-            <span>Constant DEX Buying Pressure</span>
+          <div className="font-hand text-[10px] sm:text-xs text-emerald-400 flex items-center gap-0.5 truncate">
+            <ArrowUpRight className="w-3 h-3 shrink-0" />
+            <span className="truncate">Constant DEX Pressure</span>
           </div>
         </div>
 
-        <div className="pt-2 border-t-2 border-dashed border-slate-700/80 flex items-center justify-between font-mono text-[11px] text-slate-400">
-          <span>Token Price:</span>
-          <span className="text-emerald-300 font-bold">
+        <div className="pt-1.5 sm:pt-2 border-t-2 border-dashed border-slate-700/80 flex items-center justify-between font-mono text-[9px] sm:text-[11px] text-slate-400">
+          <span className="hidden xs:inline">Price:</span>
+          <span className="text-emerald-300 font-bold truncate">
             ${state.tokenPriceUSD.toFixed(6)}
           </span>
         </div>
       </div>
 
       {/* 3. TOTAL TOKENS BURNED */}
-      <div className="p-4 bg-[#18202c] sketch-box flex flex-col justify-between">
+      <div className="p-2.5 sm:p-4 bg-[#18202c] sketch-box flex flex-col justify-between">
         <div className="flex items-center justify-between">
-          <span className="font-sketch text-xs text-rose-400 uppercase tracking-wider">
-            Total Tokens Burned 🔥
+          <span className="font-sketch text-[10px] sm:text-xs text-rose-400 uppercase tracking-wider truncate mr-1">
+            Tokens Burned 🔥
           </span>
-          <div className="w-8 h-8 rounded-lg bg-rose-400/20 text-rose-300 border border-rose-400/40 flex items-center justify-center">
-            <Flame className="w-4 h-4" />
+          <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-rose-400/20 text-rose-300 border border-rose-400/40 flex items-center justify-center shrink-0">
+            <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
         </div>
 
-        <div className="my-2">
-          <div className="flex items-baseline gap-1.5 font-mono">
-            <span className="text-2xl font-black text-rose-400">
+        <div className="my-1.5 sm:my-2">
+          <div className="flex items-baseline gap-1 font-mono">
+            <span className="text-lg xs:text-xl sm:text-2xl font-black text-rose-400">
               {formatNumber(state.totalTokensBurned)}
             </span>
-            <span className="text-xs font-bold text-rose-500">BURNED</span>
           </div>
-          <div className="font-hand text-xs text-slate-400">
-            Permanently transferred to Dead Address
+          <div className="font-hand text-[10px] sm:text-xs text-slate-400 truncate">
+            To Dead Address
           </div>
         </div>
 
         {/* Burn progress */}
-        <div className="pt-2 border-t-2 border-dashed border-slate-700/80">
-          <div className="flex justify-between font-hand text-xs text-slate-300 mb-1">
-            <span>Circulating Supply Destroyed:</span>
-            <span className="font-mono text-rose-400 font-bold">
+        <div className="pt-1.5 sm:pt-2 border-t-2 border-dashed border-slate-700/80">
+          <div className="flex justify-between font-hand text-[9px] sm:text-xs text-slate-300 mb-1">
+            <span className="truncate mr-1">Destroyed:</span>
+            <span className="font-mono text-rose-400 font-bold shrink-0">
               {state.burnedPercentageOfSupply.toFixed(2)}%
             </span>
           </div>
@@ -117,31 +115,30 @@ export const MetricsOverview: React.FC<MetricsOverviewProps> = ({ state }) => {
       </div>
 
       {/* 4. DEAD ADDRESS VAULT */}
-      <div className="p-4 bg-[#18202c] sketch-box flex flex-col justify-between">
+      <div className="p-2.5 sm:p-4 bg-[#18202c] sketch-box flex flex-col justify-between">
         <div className="flex items-center justify-between">
-          <span className="font-sketch text-xs text-sky-400 uppercase tracking-wider">
-            Dead Address Vault
+          <span className="font-sketch text-[10px] sm:text-xs text-sky-400 uppercase tracking-wider truncate mr-1">
+            Dead Vault
           </span>
-          <div className="w-8 h-8 rounded-lg bg-sky-400/20 text-sky-300 border border-sky-400/40 flex items-center justify-center font-mono font-bold text-xs">
+          <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-sky-400/20 text-sky-300 border border-sky-400/40 flex items-center justify-center font-mono font-bold text-[10px] sm:text-xs shrink-0">
             0x0
           </div>
         </div>
 
-        <div className="my-2">
-          <div className="flex items-baseline gap-1.5 font-mono">
-            <span className="text-2xl font-black text-white">
+        <div className="my-1.5 sm:my-2">
+          <div className="flex items-baseline gap-1 font-mono">
+            <span className="text-lg xs:text-xl sm:text-2xl font-black text-white">
               {formatNumber(state.deadAddressBalance)}
             </span>
-            <span className="text-xs font-bold text-sky-400">HELD</span>
           </div>
-          <div className="font-hand text-xs text-slate-400">
-            Irreversible zero-address sink
+          <div className="font-hand text-[10px] sm:text-xs text-slate-400 truncate">
+            Zero-Address Sink
           </div>
         </div>
 
-        <div className="pt-2 border-t-2 border-dashed border-slate-700/80 flex items-center justify-between font-mono text-[11px] text-slate-400">
-          <span>Market Cap:</span>
-          <span className="text-white font-bold">
+        <div className="pt-1.5 sm:pt-2 border-t-2 border-dashed border-slate-700/80 flex items-center justify-between font-mono text-[9px] sm:text-[11px] text-slate-400">
+          <span className="hidden xs:inline">MCap:</span>
+          <span className="text-white font-bold truncate">
             ${formatNumber(state.marketCapUSD)}
           </span>
         </div>

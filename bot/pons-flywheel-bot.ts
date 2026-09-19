@@ -7,7 +7,8 @@
  * 1. Menjalankan Autonomous Flywheel (Claim Fee -> Buyback -> Burn) 24/7 di PM2.
  * 2. Menyediakan HTTP API Server (/api/status, /api/config, /api/trigger)
  * 3. Terhubung langsung dengan halaman /memex (ganti Token CA langsung aktif tanpa restart PM2).
- * 4. Mode Standby cerdas jika Token CA belum diisi (tidak crash).
+ * 4. Otomatis mendeteksi alamat Pons Curve dari Token CA (Zero Mismatch).
+ * 5. Mode Standby cerdas jika Token CA belum diisi (tidak crash).
  */
 
 import http from "http";
@@ -48,8 +49,8 @@ const ADMIN_SECRET = process.env.ADMIN_SECRET || "Sonyfree24@";
 let currentConfig = {
   rpcUrl: process.env.RPC_URL || process.env.VITE_RPC_URL || "https://rpc.mainnet.chain.robinhood.com",
   privateKey: process.env.CREATOR_PRIVATE_KEY || process.env.PRIVATE_KEY || "",
-  tokenAddress: process.env.TOKEN_ADDRESS || process.env.VITE_TOKEN_ADDRESS || "none",
-  curveAddress: process.env.CURVE_ADDRESS || process.env.VITE_CURVE_ADDRESS || "0xa92fDeb8a2387D9Ef8e3b87d5EF68a0BC4D0fcDa",
+  tokenAddress: process.env.TOKEN_ADDRESS || process.env.VITE_TOKEN_ADDRESS || "0x5a2fadc9d76ebe2fc09cb22126a0c7b4ff664ed9",
+  curveAddress: process.env.CURVE_ADDRESS || process.env.VITE_CURVE_ADDRESS || "0xCe9FaED939AE11A0d5912129eb5D7DD75d238D60",
   claimThresholdETH: process.env.CLAIM_THRESHOLD_ETH || process.env.VITE_CLAIM_THRESHOLD_ETH || "0.015",
   pollIntervalSeconds: parseInt(process.env.POLL_INTERVAL_SECONDS || "10", 10),
   port: parseInt(process.env.PORT || "5000", 10)
@@ -70,7 +71,6 @@ if (fs.existsSync(CONFIG_FILE)) {
 function saveConfigToFile(newCfg: Partial<typeof currentConfig>) {
   currentConfig = { ...currentConfig, ...newCfg };
   try {
-    // Simpan tanpa privateKey demi keamanan file json
     const toSave = {
       tokenAddress: currentConfig.tokenAddress,
       curveAddress: currentConfig.curveAddress,
@@ -103,7 +103,8 @@ const ERC20_ABI = [
   "function balanceOf(address account) view returns (uint256)",
   "function transfer(address to, uint256 amount) returns (bool)",
   "function decimals() view returns (uint8)",
-  "function symbol() view returns (string)"
+  "function symbol() view returns (string)",
+  "function curve() view returns (address)"
 ];
 
 // Memory state untuk monitoring & API /memex
@@ -181,15 +182,31 @@ async function executeCycle() {
     return;
   }
 
-  if (!isValidAddress(currentConfig.curveAddress)) {
-    botState.status = "standby";
-    addLog("warn", "STANDBY: Curve Address belum valid.");
-    return;
-  }
-
   if (!wallet || !provider) {
     botState.status = "error";
     addLog("error", "Wallet atau RPC Provider tidak siap.");
+    return;
+  }
+
+  // Auto-detect Curve dari Token CA jika belum diset atau berbeda
+  try {
+    const tokenContract = new ethers.Contract(currentConfig.tokenAddress, ERC20_ABI, wallet);
+    const resolvedCurve = await tokenContract.curve();
+    if (resolvedCurve && ethers.isAddress(resolvedCurve) && resolvedCurve !== ethers.ZeroAddress) {
+      if (currentConfig.curveAddress.toLowerCase() !== resolvedCurve.toLowerCase()) {
+        addLog("info", `⚡ [AUTO-SYNC] Menghubungkan ke Pons Curve terdeteksi: ${resolvedCurve}`);
+        currentConfig.curveAddress = resolvedCurve;
+        botState.curveAddress = resolvedCurve;
+        saveConfigToFile({ curveAddress: resolvedCurve });
+      }
+    }
+  } catch (e: any) {
+    // Lewatkan jika error query curve
+  }
+
+  if (!isValidAddress(currentConfig.curveAddress)) {
+    botState.status = "standby";
+    addLog("warn", "STANDBY: Curve Address belum valid.");
     return;
   }
 
@@ -228,12 +245,21 @@ async function executeCycle() {
       if (isGraduated) {
         addLog("warn", "Token sudah lulus (graduated) ke Uniswap v4 pool.");
       } else {
-        const buyTx = await curve.buy(claimableWei, 0n, wallet.address, {
-          value: claimableWei
+        const walletBal = await provider.getBalance(wallet.address);
+        const gasBuffer = ethers.parseEther("0.0008");
+        let buyAmountWei = claimableWei;
+
+        // Pastikan sisa gas di dompet aman
+        if (walletBal < buyAmountWei + gasBuffer && walletBal > gasBuffer) {
+          buyAmountWei = walletBal - gasBuffer;
+        }
+
+        const buyTx = await curve.buy(buyAmountWei, 0n, wallet.address, {
+          value: buyAmountWei
         });
         addLog("info", `Tx Buyback terkirim: ${buyTx.hash}`);
         await buyTx.wait();
-        addLog("success", "Buyback di Curve berhasil!");
+        addLog("success", `Buyback di Curve berhasil (${ethers.formatEther(buyAmountWei)} ETH)!`);
       }
 
       // 3. BURN TOKEN
@@ -278,7 +304,6 @@ function sendJSON(res: http.ServerResponse, status: number, data: any) {
 }
 
 const server = http.createServer(async (req, res) => {
-  // Tangani preflight OPTIONS
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
@@ -311,13 +336,12 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  // Helper untuk membaca body JSON
   const readBody = (): Promise<any> => {
     return new Promise((resolve, reject) => {
       let body = "";
       req.on("data", (chunk) => {
         body += chunk;
-        if (body.length > 1e6) req.destroy(); // 1MB limit
+        if (body.length > 1e6) req.destroy();
       });
       req.on("end", () => {
         try {
@@ -330,7 +354,7 @@ const server = http.createServer(async (req, res) => {
     });
   };
 
-  // Endpoint 2: POST /api/config (Update token & settings dari /memex)
+  // Endpoint 2: POST /api/config
   if (req.method === "POST" && (url === "/api/config" || url === "/api/config/")) {
     try {
       const body = await readBody();
@@ -346,12 +370,10 @@ const server = http.createServer(async (req, res) => {
       if (body.claimThresholdETH !== undefined) updates.claimThresholdETH = String(body.claimThresholdETH).trim();
       if (body.pollIntervalSeconds !== undefined) updates.pollIntervalSeconds = parseInt(body.pollIntervalSeconds, 10);
 
-      // Simpan perubahan ke file
       saveConfigToFile(updates);
 
       addLog("success", `[MEMEX SYNC] Pengaturan diperbarui dari panel /memex! Token CA: ${currentConfig.tokenAddress}`);
 
-      // Langsung picu siklus evaluasi
       setTimeout(() => {
         executeCycle().catch(console.error);
       }, 500);
@@ -370,7 +392,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Endpoint 3: POST /api/trigger (Manual Trigger dari /memex)
+  // Endpoint 3: POST /api/trigger
   if (req.method === "POST" && (url === "/api/trigger" || url === "/api/trigger/")) {
     try {
       const body = await readBody();
@@ -389,7 +411,6 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Default 404
   return sendJSON(res, 404, { success: false, error: "Not Found" });
 });
 

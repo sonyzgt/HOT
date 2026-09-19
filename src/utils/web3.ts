@@ -9,8 +9,8 @@ export const ROBINHOOD_CHAIN_PARAMS = {
     symbol: 'ETH',
     decimals: 18,
   },
-  rpcUrls: ['https://rpc.robinhood.org'],
-  blockExplorerUrls: ['https://explorer.robinhood.org'],
+  rpcUrls: ['https://rpc.mainnet.chain.robinhood.com'],
+  blockExplorerUrls: ['https://explorer.mainnet.chain.robinhood.com'],
 };
 
 export const ESCROW_ABI = [
@@ -35,7 +35,8 @@ export const ERC20_ABI = [
   'function decimals() view returns (uint8)',
   'function totalSupply() view returns (uint256)',
   'function balanceOf(address account) view returns (uint256)',
-  'function transfer(address to, uint256 amount) returns (bool)'
+  'function transfer(address to, uint256 amount) returns (bool)',
+  'function curve() view returns (address)'
 ];
 
 export async function connectWallet(): Promise<{ address: string; signer: ethers.Signer } | null> {
@@ -47,15 +48,12 @@ export async function connectWallet(): Promise<{ address: string; signer: ethers
 
   try {
     const provider = new ethers.BrowserProvider(ethereum);
-    // Request accounts
     const accounts = await provider.send('eth_requestAccounts', []);
     if (!accounts || accounts.length === 0) return null;
 
-    // Check / switch chain
     try {
       await provider.send('wallet_switchEthereumChain', [{ chainId: ROBINHOOD_CHAIN_PARAMS.chainId }]);
     } catch (switchError: any) {
-      // 4902 error code indicates that the chain has not been added to MetaMask
       if (switchError.code === 4902) {
         await provider.send('wallet_addEthereumChain', [ROBINHOOD_CHAIN_PARAMS]);
       }
@@ -72,15 +70,134 @@ export async function connectWallet(): Promise<{ address: string; signer: ethers
   }
 }
 
-export async function fetchOnChainEscrowBalance(address: string, rpcUrl = 'https://rpc.robinhood.org'): Promise<number> {
+export async function fetchTokenCurve(
+  tokenAddress: string,
+  rpcUrl = 'https://rpc.mainnet.chain.robinhood.com'
+): Promise<string | null> {
   try {
+    if (!tokenAddress || tokenAddress.toLowerCase() === 'none' || !ethers.isAddress(tokenAddress)) {
+      return null;
+    }
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const contract = new ethers.Contract(tokenAddress, ['function curve() view returns (address)'], provider);
+    const curveAddr = await contract.curve();
+    if (curveAddr && ethers.isAddress(curveAddr) && curveAddr !== ethers.ZeroAddress) {
+      return curveAddr;
+    }
+  } catch (e) {}
+  return null;
+}
+
+export async function fetchOnChainEscrowBalance(
+  address: string,
+  rpcUrl = 'https://rpc.mainnet.chain.robinhood.com'
+): Promise<number> {
+  try {
+    if (!address || !ethers.isAddress(address)) return 0;
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const contract = new ethers.Contract(PONS_V2_CONFIG.contracts.feeEscrow, ESCROW_ABI, provider);
     const balance = await contract.balanceOf(address);
     return parseFloat(ethers.formatEther(balance));
   } catch {
-    // If RPC unavailable or address fresh, return 0
     return 0;
+  }
+}
+
+export interface OnChainMetrics {
+  escrowBalanceETH: number;
+  tokensBurned: number;
+  totalSupply: number;
+  burnedPercentage: number;
+  tokenPriceETH: number;
+  tokenPriceUSD: number;
+  marketCapUSD: number;
+  curveReservesQuoteETH: number;
+  curveReservesTokens: number;
+  curveAddress: string;
+}
+
+export async function fetchFullOnChainMetrics(
+  tokenAddress: string,
+  curveAddress: string,
+  creatorAddress: string,
+  rpcUrl = 'https://rpc.mainnet.chain.robinhood.com',
+  ethPriceUSD = 2500
+): Promise<OnChainMetrics | null> {
+  try {
+    if (!tokenAddress || tokenAddress.toLowerCase() === 'none' || !ethers.isAddress(tokenAddress)) {
+      return null;
+    }
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+
+    // 1. Escrow Balance
+    let escrowBalanceETH = 0;
+    if (creatorAddress && ethers.isAddress(creatorAddress)) {
+      try {
+        const escrow = new ethers.Contract(PONS_V2_CONFIG.contracts.feeEscrow, ESCROW_ABI, provider);
+        const balWei = await escrow.balanceOf(creatorAddress);
+        escrowBalanceETH = parseFloat(ethers.formatEther(balWei));
+      } catch (e) {}
+    }
+
+    // 2. Token contract & Dead balance
+    const tokenContract = new ethers.Contract(tokenAddress, [
+      'function totalSupply() view returns (uint256)',
+      'function balanceOf(address) view returns (uint256)',
+      'function curve() view returns (address)'
+    ], provider);
+
+    let resolvedCurve = curveAddress;
+    let totalSupply = 1_000_000_000;
+    let tokensBurned = 0;
+
+    try {
+      const [ts, deadBal, crv] = await Promise.all([
+        tokenContract.totalSupply().catch(() => 1000000000000000000000000000n),
+        tokenContract.balanceOf(PONS_V2_CONFIG.contracts.deadAddress).catch(() => 0n),
+        tokenContract.curve().catch(() => null)
+      ]);
+      totalSupply = parseFloat(ethers.formatUnits(ts, 18));
+      tokensBurned = parseFloat(ethers.formatUnits(deadBal, 18));
+      if (crv && ethers.isAddress(crv) && crv !== ethers.ZeroAddress) {
+        resolvedCurve = crv;
+      }
+    } catch (e) {}
+
+    // 3. Curve reserves & price
+    let curveReservesQuoteETH = 0;
+    let curveReservesTokens = 0;
+    let tokenPriceETH = 0.000000007;
+
+    if (resolvedCurve && ethers.isAddress(resolvedCurve) && resolvedCurve !== ethers.ZeroAddress) {
+      try {
+        const curveContract = new ethers.Contract(resolvedCurve, CURVE_ABI, provider);
+        const reserves = await curveContract.getReserves();
+        curveReservesQuoteETH = parseFloat(ethers.formatEther(reserves[0]));
+        curveReservesTokens = parseFloat(ethers.formatUnits(reserves[1], 18));
+        if (curveReservesTokens > 0 && curveReservesQuoteETH > 0) {
+          tokenPriceETH = curveReservesQuoteETH / curveReservesTokens;
+        }
+      } catch (e) {}
+    }
+
+    const tokenPriceUSD = tokenPriceETH * ethPriceUSD;
+    const marketCapUSD = tokenPriceUSD * totalSupply;
+    const burnedPercentage = totalSupply > 0 ? (tokensBurned / totalSupply) * 100 : 0;
+
+    return {
+      escrowBalanceETH,
+      tokensBurned,
+      totalSupply,
+      burnedPercentage,
+      tokenPriceETH,
+      tokenPriceUSD,
+      marketCapUSD,
+      curveReservesQuoteETH,
+      curveReservesTokens,
+      curveAddress: resolvedCurve
+    };
+  } catch (err) {
+    return null;
   }
 }
 

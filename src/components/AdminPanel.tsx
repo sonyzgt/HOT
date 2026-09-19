@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { MachineConfig, FlywheelState } from '../types';
 import { PONS_V2_CONFIG } from '../contracts';
+import { fetchTokenCurve } from '../utils/web3';
 
 interface AdminPanelProps {
   config: MachineConfig;
@@ -103,6 +104,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const interval = setInterval(fetchDaemonStatus, 4000);
     return () => clearInterval(interval);
   }, [isAuthenticated]);
+
+  // Auto-detect Curve Address from Token CA
+  useEffect(() => {
+    const checkCurve = async () => {
+      const addr = formData.tokenAddress.trim();
+      if (addr.length === 42 && addr.startsWith('0x')) {
+        const detected = await fetchTokenCurve(addr, formData.rpcUrl);
+        if (detected && detected.toLowerCase() !== formData.curveAddress.toLowerCase()) {
+          setFormData((prev) => ({ ...prev, curveAddress: detected }));
+        }
+      }
+    };
+    checkCurve();
+  }, [formData.tokenAddress, formData.rpcUrl]);
 
   // Handle Login
   const handleLogin = (e: React.FormEvent) => {

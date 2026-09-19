@@ -3,7 +3,7 @@ import confetti from 'canvas-confetti';
 import { EnginePhase, FlywheelState, ActivityLog, MachineConfig } from '../types';
 import { PONS_V2_CONFIG } from '../contracts';
 import { sounds } from '../utils/audio';
-import { fetchOnChainEscrowBalance } from '../utils/web3';
+import { fetchOnChainEscrowBalance, fetchFullOnChainMetrics, fetchTokenCurve } from '../utils/web3';
 
 // Load from environment variables (.env)
 const ENV_CYCLE_INTERVAL = parseInt(import.meta.env.VITE_CYCLE_INTERVAL_SECONDS || '300', 10);
@@ -182,16 +182,50 @@ export function useFlywheelEngine() {
     });
   }, []);
 
-  // Poll real on-chain fee balance on mount
+  // Poll real on-chain metrics & curve automatically
   useEffect(() => {
-    if (config.creatorAddress) {
-      fetchOnChainEscrowBalance(config.creatorAddress, config.rpcUrl).then((bal) => {
-        if (bal > 0) {
-          setState((prev) => ({ ...prev, currentEscrowBalanceETH: bal }));
+    if (!isConfiguredAddress(config.tokenAddress)) return;
+
+    let isCancelled = false;
+
+    const syncOnChain = async () => {
+      try {
+        const metrics = await fetchFullOnChainMetrics(
+          config.tokenAddress,
+          config.curveAddress,
+          config.creatorAddress,
+          config.rpcUrl
+        );
+
+        if (metrics && !isCancelled) {
+          // If curve address was resolved to something different, update config
+          if (metrics.curveAddress && metrics.curveAddress.toLowerCase() !== config.curveAddress.toLowerCase()) {
+            setConfig((prev) => ({ ...prev, curveAddress: metrics.curveAddress }));
+          }
+
+          setState((prev) => ({
+            ...prev,
+            currentEscrowBalanceETH: metrics.escrowBalanceETH,
+            totalTokensBurned: metrics.tokensBurned > 0 ? metrics.tokensBurned : prev.totalTokensBurned,
+            burnedPercentageOfSupply: metrics.burnedPercentage > 0 ? metrics.burnedPercentage : prev.burnedPercentageOfSupply,
+            tokenPriceETH: metrics.tokenPriceETH > 0 ? metrics.tokenPriceETH : prev.tokenPriceETH,
+            tokenPriceUSD: metrics.tokenPriceUSD > 0 ? metrics.tokenPriceUSD : prev.tokenPriceUSD,
+            marketCapUSD: metrics.marketCapUSD > 0 ? metrics.marketCapUSD : prev.marketCapUSD,
+            totalSupply: metrics.totalSupply || prev.totalSupply,
+          }));
         }
-      });
-    }
-  }, [config.creatorAddress, config.rpcUrl]);
+      } catch (e) {
+        // ignore network hiccup
+      }
+    };
+
+    syncOnChain();
+    const interval = setInterval(syncOnChain, 6000);
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [config.tokenAddress, config.curveAddress, config.creatorAddress, config.rpcUrl, setConfig]);
 
   // Fire confetti flame effect when burn triggers
   const triggerBurnConfetti = useCallback(() => {

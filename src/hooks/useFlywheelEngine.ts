@@ -251,9 +251,14 @@ export function useFlywheelEngine() {
             setConfig((prev) => ({ ...prev, curveAddress: metrics.curveAddress }));
           }
 
+          const escrow = metrics.escrowBalanceETH;
+          const threshold = config.claimThresholdETH;
+          const progress = Math.min(100, Math.round((escrow / threshold) * 100));
+
           setState((prev) => ({
             ...prev,
-            currentEscrowBalanceETH: metrics.escrowBalanceETH,
+            currentEscrowBalanceETH: escrow,
+            phaseProgress: prev.isWheelSpinning ? prev.phaseProgress : progress,
             totalTokensBurned: metrics.tokensBurned > 0 ? metrics.tokensBurned : prev.totalTokensBurned,
             deadAddressBalance: metrics.tokensBurned > 0 ? metrics.tokensBurned : prev.deadAddressBalance,
             totalTokensBoughtBack: metrics.tokensBurned > 0 ? metrics.tokensBurned : prev.totalTokensBoughtBack,
@@ -262,6 +267,11 @@ export function useFlywheelEngine() {
             tokenPriceUSD: metrics.tokenPriceUSD > 0 ? metrics.tokenPriceUSD : prev.tokenPriceUSD,
             marketCapUSD: metrics.marketCapUSD > 0 ? metrics.marketCapUSD : prev.marketCapUSD,
             totalSupply: metrics.totalSupply || prev.totalSupply,
+            lastActionText: prev.isWheelSpinning
+              ? prev.lastActionText
+              : escrow >= threshold
+                ? `Threshold reached (${escrow.toFixed(4)} / ${threshold} ETH)! Autonomous VPS Bot executing cycle...`
+                : `Wheel Idle: Escrow balance ${escrow.toFixed(4)} ETH (Target: ${threshold} ETH). Standby.`
           }));
         }
       } catch (e) {
@@ -440,7 +450,7 @@ export function useFlywheelEngine() {
     }
   }, [executeClaimPhase, executeBuybackPhase, executeBurnPhase, addLog]);
 
-  // Background trading fee accumulation monitor
+  // Autonomous Daemon & Real-time Bot Synchronization
   useEffect(() => {
     // If token address is not configured, ENGINE REMAINS COMPLETELY HALTED / STOPPED!
     if (!isConfiguredAddress(config.tokenAddress)) {
@@ -454,58 +464,59 @@ export function useFlywheelEngine() {
       return;
     }
 
-    const monitorInterval = setInterval(() => {
-      // If currently spinning and executing a cycle, don't interrupt
+    let isCancelled = false;
+
+    const syncDaemon = async () => {
+      // If user is manually running a browser animation test from AdminPanel, don't interrupt
       if (isExecutingRef.current) return;
 
-      // Double check token address is configured
-      if (!isConfiguredAddress(configRef.current.tokenAddress)) {
-        return;
-      }
+      try {
+        const res = await fetch('/api/status');
+        if (res.ok && !isCancelled) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            const data = json.data;
+            const escrow = parseFloat(data.escrowBalanceETH) || 0;
+            const threshold = parseFloat(data.claimThresholdETH) || config.claimThresholdETH;
+            const isBusy = data.status === 'claiming' || data.status === 'buyback' || data.status === 'burning' || data.status === 'active';
 
-      setState((prev) => {
-        if (isExecutingRef.current) return prev;
+            setState((prev) => {
+              if (isExecutingRef.current) return prev;
+              const progress = isBusy
+                ? (data.status === 'claiming' ? 33 : data.status === 'buyback' ? 66 : 100)
+                : Math.min(100, Math.round((escrow / threshold) * 100));
 
-        const threshold = prev.claimThresholdETH;
-        const currentFee = prev.currentEscrowBalanceETH;
-
-        // Check if there is enough fee to claim:
-        if (currentFee >= threshold) {
-          // Accumulated fee threshold met! Flywheel wheel begins spinning!
-          setTimeout(() => {
-            if (!isExecutingRef.current) {
-              runFlywheelExecution();
-            }
-          }, 0);
-
-          return {
-            ...prev,
-            isWheelSpinning: true,
-            phaseProgress: 100,
-            lastActionText: `Claimable fee threshold reached (${currentFee.toFixed(4)} ETH >= ${threshold} ETH)! Starting wheel...`,
-          };
+              return {
+                ...prev,
+                currentEscrowBalanceETH: escrow,
+                claimThresholdETH: threshold,
+                cycleCount: data.totalCyclesExecuted !== undefined ? data.totalCyclesExecuted : prev.cycleCount,
+                isWheelSpinning: isBusy,
+                currentPhase: (data.status === 'claiming' || data.status === 'buyback' || data.status === 'burning')
+                  ? data.status
+                  : 'accumulate',
+                phaseProgress: progress,
+                lastActionText: isBusy
+                  ? `Autonomous Bot Active: ${data.status.toUpperCase()} phase executing on-chain...`
+                  : escrow >= threshold
+                    ? `Claimable fee threshold reached (${escrow.toFixed(4)} / ${threshold} ETH)! Starting bot cycle...`
+                    : `Wheel Idle: Escrow balance ${escrow.toFixed(4)} ETH (Target: ${threshold} ETH). Standby.`
+              };
+            });
+          }
         }
+      } catch (e) {
+        // Fallback: On-chain RPC poller (syncOnChain) handles metrics when API is unreachable
+      }
+    };
 
-        // When fee threshold is not yet reached:
-        // Wheel remains stopped (isWheelSpinning: false).
-        // Organic buyer tax simulation incrementally accumulates fees:
-        const feeIncrement = 0.0012 + Math.random() * 0.0018; // Simulates organic buyer tax
-        const nextFee = Math.min(threshold, currentFee + feeIncrement);
-        const progress = Math.min(99, Math.round((nextFee / threshold) * 100));
-
-        return {
-          ...prev,
-          isWheelSpinning: false, // Wheel stays idle
-          currentPhase: 'accumulate',
-          currentEscrowBalanceETH: nextFee,
-          phaseProgress: progress,
-          lastActionText: `Wheel Stopped: Fee accumulating (${nextFee.toFixed(4)} / ${threshold} ETH)...`,
-        };
-      });
-    }, 4000); // Check / accumulate every 4 seconds
-
-    return () => clearInterval(monitorInterval);
-  }, [runFlywheelExecution]);
+    syncDaemon();
+    const daemonInterval = setInterval(syncDaemon, 3000);
+    return () => {
+      isCancelled = true;
+      clearInterval(daemonInterval);
+    };
+  }, [config.tokenAddress, config.claimThresholdETH]);
 
   return {
     state,

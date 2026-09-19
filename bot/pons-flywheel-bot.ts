@@ -232,14 +232,17 @@ async function executeCycle() {
       addLog("success", `⚡ THRESHOLD REACHED (${claimableETH} ETH >= ${currentConfig.claimThresholdETH} ETH). Initiating Flywheel!`);
 
       // 1. CLAIM
+      botState.status = "claiming" as any;
       addLog("info", `[1/3] Claiming ${claimableETH} ETH from Pons Fee Escrow...`);
       const claimNonce = await provider.getTransactionCount(wallet.address, "latest");
       const claimTx = await feeEscrow.claim({ nonce: claimNonce });
       addLog("info", `Claim Tx broadcasted: ${claimTx.hash}`);
       await claimTx.wait();
       addLog("success", "Fee successfully claimed to operator wallet!");
+      botState.escrowBalanceETH = "0.0";
 
       // 2. BUYBACK ON CURVE
+      botState.status = "buyback" as any;
       addLog("info", `[2/3] Executing Buyback on Curve DEX (${claimableETH} ETH)...`);
       const isGraduated = await curve.graduated().catch(() => false);
 
@@ -266,6 +269,7 @@ async function executeCycle() {
       }
 
       // 3. BURN TOKEN
+      botState.status = "burning" as any;
       const tokenSymbol = await token.symbol().catch(() => "HOT");
       const tokenBalance: bigint = await token.balanceOf(wallet.address);
       const formattedBalance = ethers.formatUnits(tokenBalance, 18);
@@ -283,6 +287,7 @@ async function executeCycle() {
     addLog("error", `Cycle execution error: ${err.message || err}`);
   } finally {
     isExecuting = false;
+    botState.status = "standby";
   }
 }
 

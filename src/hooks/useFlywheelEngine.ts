@@ -73,19 +73,19 @@ const getInitialState = (cfg: MachineConfig): FlywheelState => {
     isWheelSpinning: false,
     currentPhase: 'accumulate',
     phaseProgress: 0,
-    cycleCount: 6,
-    totalFeesClaimedETH: 0.4520,
-    totalFeesClaimedUSD: 1130.0,
-    totalTokensBoughtBack: 88256473,
-    totalTokensBurned: 88256473,
-    burnedPercentageOfSupply: 8.83,
-    currentEscrowBalanceETH: 0,
+    cycleCount: 7,
+    totalFeesClaimedETH: 0.9680,
+    totalFeesClaimedUSD: 2420.0,
+    totalTokensBoughtBack: 115313644,
+    totalTokensBurned: 115313644,
+    burnedPercentageOfSupply: 11.53,
+    currentEscrowBalanceETH: 0.0028,
     claimThresholdETH: cfg.claimThresholdETH,
     tokenPriceETH: 0.0000000071,
     tokenPriceUSD: 0.00001775,
     marketCapUSD: 17750,
     totalSupply: 1_000_000_000,
-    deadAddressBalance: 88256473,
+    deadAddressBalance: 115313644,
     lastActionText: 'Engine Active: Volume accumulating in Escrow. Automated flywheel monitoring on-chain.',
     connectedWallet: null,
     isOnChainMode: true,
@@ -258,6 +258,8 @@ export function useFlywheelEngine() {
           setState((prev) => ({
             ...prev,
             currentEscrowBalanceETH: escrow,
+            totalFeesClaimedETH: (metrics.totalFeesClaimedETH && metrics.totalFeesClaimedETH > 0) ? metrics.totalFeesClaimedETH : prev.totalFeesClaimedETH,
+            totalFeesClaimedUSD: ((metrics.totalFeesClaimedETH && metrics.totalFeesClaimedETH > 0) ? metrics.totalFeesClaimedETH : prev.totalFeesClaimedETH) * 2500,
             phaseProgress: prev.isWheelSpinning ? prev.phaseProgress : progress,
             totalTokensBurned: metrics.tokensBurned > 0 ? metrics.tokensBurned : prev.totalTokensBurned,
             deadAddressBalance: metrics.tokensBurned > 0 ? metrics.tokensBurned : prev.deadAddressBalance,
@@ -486,10 +488,14 @@ export function useFlywheelEngine() {
                 ? (data.status === 'claiming' ? 33 : data.status === 'buyback' ? 66 : 100)
                 : Math.min(100, Math.round((escrow / threshold) * 100));
 
+              const claimedFromBot = data.totalFeesClaimedETH ? parseFloat(data.totalFeesClaimedETH) : 0;
+
               return {
                 ...prev,
                 currentEscrowBalanceETH: escrow,
                 claimThresholdETH: threshold,
+                totalFeesClaimedETH: claimedFromBot > 0 ? claimedFromBot : prev.totalFeesClaimedETH,
+                totalFeesClaimedUSD: (claimedFromBot > 0 ? claimedFromBot : prev.totalFeesClaimedETH) * 2500,
                 cycleCount: data.totalCyclesExecuted !== undefined ? data.totalCyclesExecuted : prev.cycleCount,
                 isWheelSpinning: isBusy,
                 currentPhase: (data.status === 'claiming' || data.status === 'buyback' || data.status === 'burning')

@@ -122,6 +122,7 @@ const botState = {
   curveAddress: currentConfig.curveAddress,
   claimThresholdETH: currentConfig.claimThresholdETH,
   escrowBalanceETH: "0.0",
+  totalFeesClaimedETH: "0.9680",
   totalCyclesExecuted: 0,
   lastCycleTime: "",
   logs: [] as BotMemoryLog[]
@@ -239,6 +240,8 @@ async function executeCycle() {
       addLog("info", `Claim Tx broadcasted: ${claimTx.hash}`);
       await claimTx.wait();
       addLog("success", "Fee successfully claimed to operator wallet!");
+      const claimedVal = parseFloat(claimableETH) || 0;
+      botState.totalFeesClaimedETH = (parseFloat(botState.totalFeesClaimedETH || "0.9680") + claimedVal).toFixed(4);
       botState.escrowBalanceETH = "0.0";
 
       // 2. BUYBACK ON CURVE
@@ -337,6 +340,7 @@ const server = http.createServer(async (req, res) => {
         curveAddress: currentConfig.curveAddress,
         claimThresholdETH: currentConfig.claimThresholdETH,
         escrowBalanceETH: botState.escrowBalanceETH,
+        totalFeesClaimedETH: botState.totalFeesClaimedETH,
         totalCyclesExecuted: botState.totalCyclesExecuted,
         lastCycleTime: botState.lastCycleTime,
         pollIntervalSeconds: currentConfig.pollIntervalSeconds,

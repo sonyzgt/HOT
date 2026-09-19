@@ -415,45 +415,56 @@ export const DocsPage: React.FC<DocsPageProps> = ({ config, onNavigateHome }) =>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
-                <tr>
-                  <td className="py-2.5 px-3 font-sketch text-amber-400 font-bold">Developer / Creator</td>
-                  <td className="py-2.5 px-3 text-amber-300 select-all font-mono">
-                    {config.creatorAddress && config.creatorAddress.startsWith('0x') ? (
-                      <a
-                        href={`https://robinhoodchain.blockscout.com/address/${config.creatorAddress}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="hover:underline flex items-center gap-1.5"
-                      >
-                        <span>{config.creatorAddress}</span>
-                        <ExternalLink className="w-3 h-3 text-amber-400 shrink-0" />
-                      </a>
-                    ) : (
-                      <span className="text-slate-400 italic">Configured on Token Deployment</span>
-                    )}
-                  </td>
-                  <td className="py-2.5 px-3 text-amber-400 font-sketch">Deployer / Fee Beneficiary</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 font-sketch text-white">Pons Factory</td>
-                  <td className="py-2.5 px-3 text-slate-200 select-all font-mono">
+                <tr className="bg-amber-400/10">
+                  <td className="py-2.5 px-3 font-sketch text-amber-300 font-bold">$HOT Token Contract (CA)</td>
+                  <td className="py-2.5 px-3 text-amber-200 select-all font-mono font-bold">
                     <a
-                      href={`https://robinhoodchain.blockscout.com/address/${PONS_V2_CONFIG.contracts.factory}`}
+                      href={`https://explorer.mainnet.chain.robinhood.com/address/${PONS_V2_CONFIG.contracts.token}`}
                       target="_blank"
                       rel="noreferrer"
                       className="hover:underline flex items-center gap-1.5"
                     >
-                      <span>{PONS_V2_CONFIG.contracts.factory}</span>
+                      <span>{PONS_V2_CONFIG.contracts.token}</span>
+                      <ExternalLink className="w-3 h-3 text-amber-400 shrink-0" />
+                    </a>
+                  </td>
+                  <td className="py-2.5 px-3 text-emerald-400 font-sketch font-bold">● Deployed on RH Chain</td>
+                </tr>
+                <tr>
+                  <td className="py-2.5 px-3 font-sketch text-amber-400 font-bold">Developer / Creator</td>
+                  <td className="py-2.5 px-3 text-amber-300 select-all font-mono">
+                    <a
+                      href={`https://explorer.mainnet.chain.robinhood.com/address/${PONS_V2_CONFIG.contracts.creator}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="hover:underline flex items-center gap-1.5"
+                    >
+                      <span>{PONS_V2_CONFIG.contracts.creator}</span>
+                      <ExternalLink className="w-3 h-3 text-amber-400 shrink-0" />
+                    </a>
+                  </td>
+                  <td className="py-2.5 px-3 text-amber-400 font-sketch">Deployer / Fee Beneficiary</td>
+                </tr>
+                <tr>
+                  <td className="py-2.5 px-3 font-sketch text-white">HOT Pons Bonding Curve</td>
+                  <td className="py-2.5 px-3 text-slate-200 select-all font-mono">
+                    <a
+                      href={`https://explorer.mainnet.chain.robinhood.com/address/${PONS_V2_CONFIG.contracts.curve}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="hover:underline flex items-center gap-1.5"
+                    >
+                      <span>{PONS_V2_CONFIG.contracts.curve}</span>
                       <ExternalLink className="w-3 h-3 text-slate-400 shrink-0" />
                     </a>
                   </td>
-                  <td className="py-2.5 px-3 text-emerald-400">Verified Protocol</td>
+                  <td className="py-2.5 px-3 text-emerald-400">DEX Market Curve</td>
                 </tr>
                 <tr>
                   <td className="py-2.5 px-3 font-sketch text-white">Fee Escrow Vault</td>
                   <td className="py-2.5 px-3 text-slate-200 select-all font-mono">
                     <a
-                      href={`https://robinhoodchain.blockscout.com/address/${PONS_V2_CONFIG.contracts.feeEscrow}`}
+                      href={`https://explorer.mainnet.chain.robinhood.com/address/${PONS_V2_CONFIG.contracts.feeEscrow}`}
                       target="_blank"
                       rel="noreferrer"
                       className="hover:underline flex items-center gap-1.5"
@@ -465,33 +476,39 @@ export const DocsPage: React.FC<DocsPageProps> = ({ config, onNavigateHome }) =>
                   <td className="py-2.5 px-3 text-emerald-400">Verified Vault</td>
                 </tr>
                 <tr>
-                  <td className="py-2.5 px-3 font-sketch text-white">Pons Bonding Curve</td>
-                  <td className="py-2.5 px-3 text-slate-200 select-all font-mono">
-                    {config.curveAddress && config.curveAddress.startsWith('0x') ? (
-                      <a
-                        href={`https://robinhoodchain.blockscout.com/address/${config.curveAddress}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="hover:underline flex items-center gap-1.5"
-                      >
-                        <span>{config.curveAddress}</span>
-                        <ExternalLink className="w-3 h-3 text-slate-400 shrink-0" />
-                      </a>
-                    ) : (
-                      <span className="text-slate-400 italic">Auto-generated upon launch</span>
-                    )}
+                  <td className="py-2.5 px-3 font-sketch text-white">Dead Sink Address</td>
+                  <td className="py-2.5 px-3 text-rose-400 select-all font-mono">
+                    <a
+                      href={`https://explorer.mainnet.chain.robinhood.com/address/${PONS_V2_CONFIG.contracts.deadAddress}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="hover:underline flex items-center gap-1.5"
+                    >
+                      <span>{PONS_V2_CONFIG.contracts.deadAddress}</span>
+                      <ExternalLink className="w-3 h-3 text-rose-400 shrink-0" />
+                    </a>
                   </td>
-                  <td className="py-2.5 px-3 text-emerald-400">DEX Market</td>
+                  <td className="py-2.5 px-3 text-rose-400 font-bold">Permanent Burn Sink</td>
+                </tr>
+                <tr>
+                  <td className="py-2.5 px-3 font-sketch text-white">Pons Factory</td>
+                  <td className="py-2.5 px-3 text-slate-200 select-all font-mono">
+                    <a
+                      href={`https://explorer.mainnet.chain.robinhood.com/address/${PONS_V2_CONFIG.contracts.factory}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="hover:underline flex items-center gap-1.5"
+                    >
+                      <span>{PONS_V2_CONFIG.contracts.factory}</span>
+                      <ExternalLink className="w-3 h-3 text-slate-400 shrink-0" />
+                    </a>
+                  </td>
+                  <td className="py-2.5 px-3 text-emerald-400">Verified Protocol</td>
                 </tr>
                 <tr>
                   <td className="py-2.5 px-3 font-sketch text-white">Buyback Vault</td>
                   <td className="py-2.5 px-3 text-slate-200 select-all font-mono">{PONS_V2_CONFIG.contracts.buybackVault}</td>
                   <td className="py-2.5 px-3 text-emerald-400">Verified Router</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 font-sketch text-white">Dead Sink Address</td>
-                  <td className="py-2.5 px-3 text-rose-400 select-all font-mono">{PONS_V2_CONFIG.contracts.deadAddress}</td>
-                  <td className="py-2.5 px-3 text-rose-400 font-bold">Permanent Burn Sink</td>
                 </tr>
               </tbody>
             </table>

@@ -142,33 +142,33 @@ let wallet: ethers.Wallet | null = null;
 function initWallet() {
   try {
     if (!currentConfig.privateKey) {
-      addLog("error", "CREATOR_PRIVATE_KEY belum diset di .env!");
+      addLog("error", "CREATOR_PRIVATE_KEY not set in .env!");
       return;
     }
     provider = new ethers.JsonRpcProvider(currentConfig.rpcUrl);
     wallet = new ethers.Wallet(currentConfig.privateKey, provider);
     botState.walletAddress = wallet.address;
-    addLog("info", `Operator Wallet aktif: ${wallet.address}`);
+    addLog("info", `Operator Wallet active: ${wallet.address}`);
   } catch (e: any) {
-    addLog("error", `Gagal inisialisasi wallet: ${e.message}`);
+    addLog("error", `Failed to initialize wallet: ${e.message}`);
   }
 }
 
 initWallet();
 
-// Validasi apakah Token Address valid
+// Validate whether Token Address is valid
 function isValidAddress(addr?: string): boolean {
   if (!addr) return false;
   const c = addr.trim().toLowerCase();
   return c !== "none" && c !== "" && ethers.isAddress(c);
 }
 
-// Siklus Flywheel
+// Flywheel Execution Cycle
 let isExecuting = false;
 
 async function executeCycle() {
   if (isExecuting) {
-    addLog("warn", "Siklus sedang berjalan, melewatkan iterasi ini.");
+    addLog("warn", "Cycle currently executing, skipping this poll tick.");
     return;
   }
 
@@ -178,35 +178,35 @@ async function executeCycle() {
 
   if (!isValidAddress(currentConfig.tokenAddress)) {
     botState.status = "standby";
-    addLog("warn", "STANDBY: Token CA belum diset (bernilai 'none'). Buka /memex untuk memasukkan CA.");
+    addLog("warn", "STANDBY: Token CA is not configured (set to 'none'). Visit /memex to configure.");
     return;
   }
 
   if (!wallet || !provider) {
     botState.status = "error";
-    addLog("error", "Wallet atau RPC Provider tidak siap.");
+    addLog("error", "Wallet or RPC Provider not ready.");
     return;
   }
 
-  // Auto-detect Curve dari Token CA jika belum diset atau berbeda
+  // Auto-detect Curve from Token CA if not set or different
   try {
     const tokenContract = new ethers.Contract(currentConfig.tokenAddress, ERC20_ABI, wallet);
     const resolvedCurve = await tokenContract.curve();
     if (resolvedCurve && ethers.isAddress(resolvedCurve) && resolvedCurve !== ethers.ZeroAddress) {
       if (currentConfig.curveAddress.toLowerCase() !== resolvedCurve.toLowerCase()) {
-        addLog("info", `⚡ [AUTO-SYNC] Menghubungkan ke Pons Curve terdeteksi: ${resolvedCurve}`);
+        addLog("info", `⚡ [AUTO-SYNC] Connected to detected Pons Curve: ${resolvedCurve}`);
         currentConfig.curveAddress = resolvedCurve;
         botState.curveAddress = resolvedCurve;
         saveConfigToFile({ curveAddress: resolvedCurve });
       }
     }
   } catch (e: any) {
-    // Lewatkan jika error query curve
+    // Skip if curve query error
   }
 
   if (!isValidAddress(currentConfig.curveAddress)) {
     botState.status = "standby";
-    addLog("warn", "STANDBY: Curve Address belum valid.");
+    addLog("warn", "STANDBY: Curve Address is not valid yet.");
     return;
   }
 
@@ -218,39 +218,39 @@ async function executeCycle() {
     const curve = new ethers.Contract(currentConfig.curveAddress, CURVE_ABI, wallet);
     const token = new ethers.Contract(currentConfig.tokenAddress, ERC20_ABI, wallet);
 
-    // Cek Fee Escrow
+    // Check Fee Escrow
     const claimableWei: bigint = await feeEscrow.balanceOf(wallet.address);
     const claimableETH = ethers.formatEther(claimableWei);
     botState.escrowBalanceETH = claimableETH;
     botState.lastCycleTime = new Date().toLocaleTimeString();
 
-    addLog("info", `Cek Escrow Fee: ${claimableETH} ETH (Ambang batas: ${currentConfig.claimThresholdETH} ETH)`);
+    addLog("info", `Checking Escrow Fee: ${claimableETH} ETH (Threshold: ${currentConfig.claimThresholdETH} ETH)`);
 
     const thresholdWei = ethers.parseEther(currentConfig.claimThresholdETH);
 
     if (claimableWei >= thresholdWei && claimableWei > 0n) {
-      addLog("success", `⚡ AMBANG BATAS TERCAPAI (${claimableETH} ETH >= ${currentConfig.claimThresholdETH} ETH). Memulai Flywheel!`);
+      addLog("success", `⚡ THRESHOLD REACHED (${claimableETH} ETH >= ${currentConfig.claimThresholdETH} ETH). Initiating Flywheel!`);
 
       // 1. CLAIM
-      addLog("info", `[1/3] Mengklaim ${claimableETH} ETH dari Pons Escrow...`);
+      addLog("info", `[1/3] Claiming ${claimableETH} ETH from Pons Fee Escrow...`);
       const claimNonce = await provider.getTransactionCount(wallet.address, "latest");
       const claimTx = await feeEscrow.claim({ nonce: claimNonce });
-      addLog("info", `Tx Claim terkirim: ${claimTx.hash}`);
+      addLog("info", `Claim Tx broadcasted: ${claimTx.hash}`);
       await claimTx.wait();
-      addLog("success", "Fee berhasil diklaim ke dompet!");
+      addLog("success", "Fee successfully claimed to operator wallet!");
 
-      // 2. BUYBACK DI CURVE
-      addLog("info", `[2/3] Mengeksekusi Buyback di Curve DEX (${claimableETH} ETH)...`);
+      // 2. BUYBACK ON CURVE
+      addLog("info", `[2/3] Executing Buyback on Curve DEX (${claimableETH} ETH)...`);
       const isGraduated = await curve.graduated().catch(() => false);
 
       if (isGraduated) {
-        addLog("warn", "Token sudah lulus (graduated) ke Uniswap v4 pool.");
+        addLog("warn", "Token has graduated to Uniswap v4 pool.");
       } else {
         const walletBal = await provider.getBalance(wallet.address);
         const gasBuffer = ethers.parseEther("0.0008");
         let buyAmountWei = claimableWei;
 
-        // Pastikan sisa gas di dompet aman
+        // Ensure sufficient gas buffer remains in wallet
         if (walletBal < buyAmountWei + gasBuffer && walletBal > gasBuffer) {
           buyAmountWei = walletBal - gasBuffer;
         }
@@ -260,9 +260,9 @@ async function executeCycle() {
           value: buyAmountWei,
           nonce: buyNonce
         });
-        addLog("info", `Tx Buyback terkirim: ${buyTx.hash}`);
+        addLog("info", `Buyback Tx broadcasted: ${buyTx.hash}`);
         await buyTx.wait();
-        addLog("success", `Buyback di Curve berhasil (${ethers.formatEther(buyAmountWei)} ETH)!`);
+        addLog("success", `Buyback on Curve succeeded (${ethers.formatEther(buyAmountWei)} ETH)!`);
       }
 
       // 3. BURN TOKEN
@@ -270,17 +270,17 @@ async function executeCycle() {
       const tokenBalance: bigint = await token.balanceOf(wallet.address);
       const formattedBalance = ethers.formatUnits(tokenBalance, 18);
 
-      addLog("info", `[3/3] Membakar ${formattedBalance} $${tokenSymbol} ke DEAD_ADDRESS...`);
+      addLog("info", `[3/3] Burning ${formattedBalance} $${tokenSymbol} to DEAD_ADDRESS...`);
       const burnNonce = await provider.getTransactionCount(wallet.address, "latest");
       const burnTx = await token.transfer(DEAD_ADDRESS, tokenBalance, { nonce: burnNonce });
-      addLog("info", `Tx Burn terkirim: ${burnTx.hash}`);
+      addLog("info", `Burn Tx broadcasted: ${burnTx.hash}`);
       await burnTx.wait();
-      addLog("success", `🔥 SELESAI: ${formattedBalance} $${tokenSymbol} TELAH DIBUMI-HANGUSKAN!`);
+      addLog("success", `🔥 COMPLETED: ${formattedBalance} $${tokenSymbol} PERMANENTLY INCINERATED!`);
 
       botState.totalCyclesExecuted++;
     }
   } catch (err: any) {
-    addLog("error", `Terjadi kesalahan siklus: ${err.message || err}`);
+    addLog("error", `Cycle execution error: ${err.message || err}`);
   } finally {
     isExecuting = false;
   }
@@ -365,7 +365,7 @@ const server = http.createServer(async (req, res) => {
       const secret = body.password || req.headers["x-admin-secret"];
 
       if (secret !== ADMIN_SECRET) {
-        return sendJSON(res, 401, { success: false, error: "Password Admin salah!" });
+        return sendJSON(res, 401, { success: false, error: "Incorrect Admin password!" });
       }
 
       const updates: any = {};
@@ -376,7 +376,7 @@ const server = http.createServer(async (req, res) => {
 
       saveConfigToFile(updates);
 
-      addLog("success", `[MEMEX SYNC] Pengaturan diperbarui dari panel /memex! Token CA: ${currentConfig.tokenAddress}`);
+      addLog("success", `[MEMEX SYNC] Settings updated from /memex panel! Token CA: ${currentConfig.tokenAddress}`);
 
       setTimeout(() => {
         executeCycle().catch(console.error);
@@ -384,7 +384,7 @@ const server = http.createServer(async (req, res) => {
 
       return sendJSON(res, 200, {
         success: true,
-        message: "Konfigurasi bot berhasil diperbarui!",
+        message: "Bot configuration successfully updated!",
         data: {
           tokenAddress: currentConfig.tokenAddress,
           curveAddress: currentConfig.curveAddress,
@@ -403,13 +403,13 @@ const server = http.createServer(async (req, res) => {
       const secret = body.password || req.headers["x-admin-secret"];
 
       if (secret !== ADMIN_SECRET) {
-        return sendJSON(res, 401, { success: false, error: "Password Admin salah!" });
+        return sendJSON(res, 401, { success: false, error: "Incorrect Admin password!" });
       }
 
-      addLog("info", "[MANUAL] Siklus dipicu manual dari panel /memex.");
+      addLog("info", "[MANUAL] Cycle manually triggered from /memex panel.");
       executeCycle().catch(console.error);
 
-      return sendJSON(res, 200, { success: true, message: "Siklus manual sedang dieksekusi!" });
+      return sendJSON(res, 200, { success: true, message: "Manual cycle is executing!" });
     } catch (e: any) {
       return sendJSON(res, 400, { success: false, error: e.message });
     }
@@ -421,10 +421,10 @@ const server = http.createServer(async (req, res) => {
 const PORT = currentConfig.port;
 server.listen(PORT, "0.0.0.0", () => {
   console.log("==========================================================");
-  console.log(`🚀 HOT AUTONOMOUS FLYWHEEL & API SERVER AKTIF`);
-  console.log(`   Port Server      : ${PORT}`);
+  console.log(`🚀 HOT AUTONOMOUS FLYWHEEL & API SERVER ACTIVE`);
+  console.log(`   Server Port      : ${PORT}`);
   console.log(`   Admin API Ready  : http://localhost:${PORT}/api/status`);
-  console.log(`   Operator Wallet  : ${botState.walletAddress || "Belum siap"}`);
-  console.log(`   Status Awal      : ${isValidAddress(currentConfig.tokenAddress) ? "ACTIVE" : "STANDBY (Menunggu CA dari /memex)"}`);
+  console.log(`   Operator Wallet  : ${botState.walletAddress || "Not ready"}`);
+  console.log(`   Initial Status   : ${isValidAddress(currentConfig.tokenAddress) ? "ACTIVE" : "STANDBY (Awaiting CA from /memex)"}`);
   console.log("==========================================================");
 });

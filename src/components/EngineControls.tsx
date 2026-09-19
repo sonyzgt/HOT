@@ -70,7 +70,7 @@ export const EngineControls: React.FC<EngineControlsProps> = ({
               ? 'Token address is not configured (None). Engine will not spin until token contract is deployed.'
               : isWheelSpinning
               ? 'Claimable fee detected in Escrow. Executing full Buyback & Burn cycle...'
-              : `Roda berhenti saat tidak ada fee. Akan berputar otomatis saat fee terkumpul ≥ ${claimThresholdETH} ETH.`}
+              : `Wheel pauses when idle. Automatically spins once accumulated fee reaches ≥ ${claimThresholdETH} ETH.`}
           </p>
         </div>
       </div>

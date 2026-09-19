@@ -607,13 +607,13 @@ export const DocsPage: React.FC<DocsPageProps> = ({ config, onNavigateHome }) =>
             <span className="text-amber-400 font-bold">&bull;</span>
             <span>
               {activeCodeTab === 'cycle' &&
-                'Mekanisme 3-langkah ini berjalan secara berurutan dan terjamin atomik: ETH fee yang diklaim langsung dibelikan token di Pons Curve, dan token yang terbeli langsung dikirim ke dead address 0x0...dEaD.'}
+                'This 3-step mechanism executes sequentially and reliably: claimed ETH fees are immediately swapped for tokens on Pons Curve, and all acquired tokens are permanently transferred to the dead address 0x0...dEaD.'}
               {activeCodeTab === 'abi' &&
-                'Interface resmi Pons Family v2: FeeEscrow untuk pencairan fee ETH kreator, Curve DEX untuk swap market buy, dan standar ERC20 untuk eksekusi transfer burn.'}
+                'Official Pons Family v2 interfaces: FeeEscrow for creator ETH fee liquidation, Curve DEX for market buy swaps, and standard ERC-20 for burn transfer execution.'}
               {activeCodeTab === 'reactive' &&
-                'Engine web ini bekerja secara reaktif: Roda mesin berhenti diam (idle) saat fee belum mencapai threshold, dan otomatis berputar saat fee trading terkumpul.'}
+                'This web engine operates reactively: the flywheel halts on idle when fees are below threshold, and automatically spins as trading volume accumulates.'}
               {activeCodeTab === 'bot' &&
-                'Script daemon Node.js ini berjalan 24/7 di background tanpa perlu membuka browser, menggunakan private key untuk menandatangani transaksi on-chain secara mandiri.'}
+                'This Node.js daemon script runs 24/7 in the background without needing a browser, utilizing the private key to sign on-chain transactions autonomously.'}
             </span>
           </div>
         </div>

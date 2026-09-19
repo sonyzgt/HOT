@@ -420,7 +420,7 @@ export function useFlywheelEngine() {
       sounds.playAccumulateSound();
       setState((prev) => ({
         ...prev,
-        isWheelSpinning: false, // RODA BERHENTI KARENA FEE SUDAH DI-CLAIM!
+        isWheelSpinning: false, // Wheel stops because fees have been claimed
         currentPhase: 'accumulate',
         phaseProgress: 0,
         currentEscrowBalanceETH: 0, // Escrow balance now 0
@@ -471,7 +471,7 @@ export function useFlywheelEngine() {
 
         // Check if there is enough fee to claim:
         if (currentFee >= threshold) {
-          // Ada fee yang harus di-claim! Roda akan berputar!
+          // Accumulated fee threshold met! Flywheel wheel begins spinning!
           setTimeout(() => {
             if (!isExecutingRef.current) {
               runFlywheelExecution();
@@ -486,16 +486,16 @@ export function useFlywheelEngine() {
           };
         }
 
-        // Kalau BELUM ada fee yang harus di-claim:
-        // Roda BERHENTI (isWheelSpinning: false).
-        // Setiap beberapa detik ada simulasi pembelian token di Curve yang menambah fee sedikit demi sedikit:
+        // When fee threshold is not yet reached:
+        // Wheel remains stopped (isWheelSpinning: false).
+        // Organic buyer tax simulation incrementally accumulates fees:
         const feeIncrement = 0.0012 + Math.random() * 0.0018; // Simulates organic buyer tax
         const nextFee = Math.min(threshold, currentFee + feeIncrement);
         const progress = Math.min(99, Math.round((nextFee / threshold) * 100));
 
         return {
           ...prev,
-          isWheelSpinning: false, // Roda tetap diam / berhenti
+          isWheelSpinning: false, // Wheel stays idle
           currentPhase: 'accumulate',
           currentEscrowBalanceETH: nextFee,
           phaseProgress: progress,

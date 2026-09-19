@@ -5,28 +5,30 @@ import { PONS_V2_CONFIG } from '../contracts';
 import { sounds } from '../utils/audio';
 import { fetchOnChainEscrowBalance, fetchFullOnChainMetrics, fetchTokenCurve } from '../utils/web3';
 
-// Load from environment variables (.env)
+// Load from environment variables (.env) with strict fallback to official deployed contracts
+const rawToken = import.meta.env.VITE_TOKEN_ADDRESS;
+export const OFFICIAL_TOKEN_ADDRESS = '0x5a2fadc9d76ebe2fc09cb22126a0c7b4ff664ed9';
+export const OFFICIAL_CURVE_ADDRESS = '0xCe9FaED939AE11A0d5912129eb5D7DD75d238D60';
+export const OFFICIAL_CREATOR_ADDRESS = '0xC2Df69666d3f4c9C06a41C883be9909dD45c2123';
+export const OFFICIAL_RPC_URL = 'https://rpc.mainnet.chain.robinhood.com';
+
 const ENV_CYCLE_INTERVAL = parseInt(import.meta.env.VITE_CYCLE_INTERVAL_SECONDS || '300', 10);
 const ENV_TOKEN_NAME = import.meta.env.VITE_TOKEN_NAME || 'HOT';
 const ENV_TOKEN_SYMBOL = import.meta.env.VITE_TOKEN_SYMBOL || 'HOT';
-const ENV_TOKEN_ADDRESS = import.meta.env.VITE_TOKEN_ADDRESS || '0x5a2fadc9d76ebe2fc09cb22126a0c7b4ff664ed9';
-const ENV_CURVE_ADDRESS = import.meta.env.VITE_CURVE_ADDRESS || '0xCe9FaED939AE11A0d5912129eb5D7DD75d238D60';
-const ENV_CREATOR_ADDRESS = import.meta.env.VITE_CREATOR_ADDRESS || '0xC2Df69666d3f4c9C06a41C883be9909dD45c2123';
 const ENV_CLAIM_THRESHOLD = parseFloat(import.meta.env.VITE_CLAIM_THRESHOLD_ETH || '0.015');
-const ENV_RPC_URL = import.meta.env.VITE_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com';
 
 export const INITIAL_CONFIG: MachineConfig = {
   networkName: 'Robinhood Chain',
   chainId: PONS_V2_CONFIG.chainId,
-  rpcUrl: ENV_RPC_URL,
+  rpcUrl: OFFICIAL_RPC_URL,
   tokenName: ENV_TOKEN_NAME,
   tokenSymbol: ENV_TOKEN_SYMBOL,
-  tokenAddress: ENV_TOKEN_ADDRESS,
-  curveAddress: ENV_CURVE_ADDRESS,
+  tokenAddress: OFFICIAL_TOKEN_ADDRESS,
+  curveAddress: OFFICIAL_CURVE_ADDRESS,
   factoryAddress: PONS_V2_CONFIG.contracts.factory,
   feeEscrowAddress: PONS_V2_CONFIG.contracts.feeEscrow,
   deadAddress: PONS_V2_CONFIG.contracts.deadAddress,
-  creatorAddress: ENV_CREATOR_ADDRESS,
+  creatorAddress: OFFICIAL_CREATOR_ADDRESS,
   claimThresholdETH: ENV_CLAIM_THRESHOLD,
   slippageBps: 200,
   cycleIntervalSeconds: ENV_CYCLE_INTERVAL,
@@ -46,16 +48,17 @@ const getStoredConfig = (): MachineConfig => {
     if (saved) {
       const parsed = JSON.parse(saved);
       // Clean up any stale or unconfigured cache
-      parsed.tokenAddress = '0x5a2fadc9d76ebe2fc09cb22126a0c7b4ff664ed9';
-      parsed.curveAddress = '0xCe9FaED939AE11A0d5912129eb5D7DD75d238D60';
-      parsed.creatorAddress = ENV_CREATOR_ADDRESS;
-      parsed.rpcUrl = ENV_RPC_URL;
+      parsed.tokenAddress = OFFICIAL_TOKEN_ADDRESS;
+      parsed.curveAddress = OFFICIAL_CURVE_ADDRESS;
+      parsed.creatorAddress = OFFICIAL_CREATOR_ADDRESS;
+      parsed.rpcUrl = OFFICIAL_RPC_URL;
       return {
         ...INITIAL_CONFIG,
         ...parsed,
-        tokenAddress: '0x5a2fadc9d76ebe2fc09cb22126a0c7b4ff664ed9',
-        curveAddress: '0xCe9FaED939AE11A0d5912129eb5D7DD75d238D60',
-        rpcUrl: ENV_RPC_URL,
+        tokenAddress: OFFICIAL_TOKEN_ADDRESS,
+        curveAddress: OFFICIAL_CURVE_ADDRESS,
+        creatorAddress: OFFICIAL_CREATOR_ADDRESS,
+        rpcUrl: OFFICIAL_RPC_URL,
       };
     }
   } catch (e) {

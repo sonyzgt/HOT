@@ -1,0 +1,6 @@
+{
+  "tokenAddress": "none",
+  "curveAddress": "0xa92fDeb8a2387D9Ef8e3b87d5EF68a0BC4D0fcDa",
+  "claimThresholdETH": "0.015",
+  "pollIntervalSeconds": 10
+}

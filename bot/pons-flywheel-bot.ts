@@ -1,60 +1,84 @@
 /**
- * PONS FAMILY V2 - AUTONOMOUS FLYWHEEL BOT (CLAIM -> BUYBACK -> BURN)
+ * PONS FAMILY V2 - AUTONOMOUS FLYWHEEL BOT & API SERVER
  * Network: Robinhood Chain (EVM Chain ID: 4663)
  * Reference: https://docs.ponsfamily.com/v2
  * 
- * Mekanisme:
- * 1. Cek saldo fee di Fee Escrow (0xd3AFEB2a57f70eF218Aa82451c51B2fb0416Ac9e)
- * 2. Saat saldo >= THRESHOLD (misal 0.01 ETH), panggil escrow.claim()
- * 3. Gunakan ETH yang diklaim untuk eksekusi curve.buy() di Curve DEX Pons
- * 4. Transfer token yang terbeli langsung ke DEAD_ADDRESS (0x000000000000000000000000000000000000dEaD)
- * 5. Ulangi siklus secara otomatis!
+ * Fitur:
+ * 1. Menjalankan Autonomous Flywheel (Claim Fee -> Buyback -> Burn) 24/7 di PM2.
+ * 2. Menyediakan HTTP API Server (/api/status, /api/config, /api/trigger)
+ * 3. Terhubung langsung dengan halaman /memex (ganti Token CA langsung aktif tanpa restart PM2).
+ * 4. Mode Standby cerdas jika Token CA belum diisi (tidak crash).
  */
 
+import http from "http";
+import fs from "fs";
+import path from "path";
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
+
 dotenv.config();
 
-// Konfigurasi dari file .env (Mendukung prefix VITE_ atau standar)
-const RPC_URL = process.env.RPC_URL || process.env.VITE_RPC_URL || "https://rpc.mainnet.chain.robinhood.com";
-const PRIVATE_KEY = process.env.CREATOR_PRIVATE_KEY || process.env.PRIVATE_KEY;
-const TOKEN_ADDRESS = process.env.TOKEN_ADDRESS || process.env.VITE_TOKEN_ADDRESS;
-const CURVE_ADDRESS = process.env.CURVE_ADDRESS || process.env.VITE_CURVE_ADDRESS;
-const CLAIM_THRESHOLD_ETH = process.env.CLAIM_THRESHOLD_ETH || process.env.VITE_CLAIM_THRESHOLD_ETH || "0.015";
-const POLL_INTERVAL_SECONDS = parseInt(process.env.POLL_INTERVAL_SECONDS || "10", 10);
+// File konfigurasi persisten
+const CONFIG_FILE = path.resolve(process.cwd(), "bot-config.json");
+
+// Admin password untuk otorisasi API dari /memex
+const ADMIN_SECRET = process.env.ADMIN_SECRET || "Sonyfree24@";
+
+// Default Config
+let currentConfig = {
+  rpcUrl: process.env.RPC_URL || process.env.VITE_RPC_URL || "https://rpc.mainnet.chain.robinhood.com",
+  privateKey: process.env.CREATOR_PRIVATE_KEY || process.env.PRIVATE_KEY || "",
+  tokenAddress: process.env.TOKEN_ADDRESS || process.env.VITE_TOKEN_ADDRESS || "none",
+  curveAddress: process.env.CURVE_ADDRESS || process.env.VITE_CURVE_ADDRESS || "0xa92fDeb8a2387D9Ef8e3b87d5EF68a0BC4D0fcDa",
+  claimThresholdETH: process.env.CLAIM_THRESHOLD_ETH || process.env.VITE_CLAIM_THRESHOLD_ETH || "0.015",
+  pollIntervalSeconds: parseInt(process.env.POLL_INTERVAL_SECONDS || "10", 10),
+  port: parseInt(process.env.PORT || "5000", 10)
+};
+
+// Baca config tersimpan jika ada
+if (fs.existsSync(CONFIG_FILE)) {
+  try {
+    const saved = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
+    currentConfig = { ...currentConfig, ...saved };
+    console.log("📂 [CONFIG] Konfigurasi dimuat dari bot-config.json");
+  } catch (e) {
+    console.error("⚠️ Gagal membaca bot-config.json, menggunakan environment default");
+  }
+}
+
+// Simpan config ke file
+function saveConfigToFile(newCfg: Partial<typeof currentConfig>) {
+  currentConfig = { ...currentConfig, ...newCfg };
+  try {
+    // Simpan tanpa privateKey demi keamanan file json
+    const toSave = {
+      tokenAddress: currentConfig.tokenAddress,
+      curveAddress: currentConfig.curveAddress,
+      claimThresholdETH: currentConfig.claimThresholdETH,
+      pollIntervalSeconds: currentConfig.pollIntervalSeconds
+    };
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(toSave, null, 2), "utf-8");
+    console.log("💾 [CONFIG] Konfigurasi berhasil disimpan ke bot-config.json");
+  } catch (err: any) {
+    console.error("❌ Gagal menyimpan bot-config.json:", err.message);
+  }
+}
 
 // Kontrak Resmi Pons v2 (docs.ponsfamily.com/v2)
 const PONS_FEE_ESCROW = "0xd3AFEB2a57f70eF218Aa82451c51B2fb0416Ac9e";
 const DEAD_ADDRESS = "0x000000000000000000000000000000000000dEaD";
 
-if (!PRIVATE_KEY || PRIVATE_KEY === "") {
-  console.error("❌ ERROR: CREATOR_PRIVATE_KEY belum diisi di file .env");
-  console.error("   Tambahkan: CREATOR_PRIVATE_KEY=\"0x...\" ke file .env");
-  process.exit(1);
-}
-if (!TOKEN_ADDRESS || TOKEN_ADDRESS.toLowerCase() === "none") {
-  console.error("❌ ERROR: TOKEN_ADDRESS masih bernilai 'none' atau belum diisi di .env");
-  console.error("   Silakan masukkan Token Contract Address (CA) yang sudah dideploy di Pons ke .env");
-  process.exit(1);
-}
-if (!CURVE_ADDRESS || CURVE_ADDRESS.toLowerCase() === "none") {
-  console.error("❌ ERROR: CURVE_ADDRESS belum diisi di .env");
-  process.exit(1);
-}
-
-// ABI Minimal
+// ABIs
 const ESCROW_ABI = [
   "function balanceOf(address recipient) view returns (uint256)",
   "function claim()"
 ];
-
 const CURVE_ABI = [
   "function buy(uint256 quoteIn, uint256 minTokensOut, address recipient) payable returns (uint256)",
   "function getReserves() view returns (uint256 quoteReserve, uint256 tokenReserve)",
   "function sellableTokens() view returns (uint256)",
   "function graduated() view returns (bool)"
 ];
-
 const ERC20_ABI = [
   "function balanceOf(address account) view returns (uint256)",
   "function transfer(address to, uint256 amount) returns (bool)",
@@ -62,89 +86,300 @@ const ERC20_ABI = [
   "function symbol() view returns (string)"
 ];
 
-async function runFlywheel() {
-  console.log("==========================================================");
-  console.log("🚀 PONS V2 AUTONOMOUS FLYWHEEL ENGINE AKTIF");
-  console.log("   Jaringan: Robinhood Chain (ID: 4663)");
-  console.log("   Fee Escrow Target:", PONS_FEE_ESCROW);
-  console.log("   Dead Burn Address:", DEAD_ADDRESS);
-  console.log("==========================================================");
+// Memory state untuk monitoring & API /memex
+interface BotMemoryLog {
+  timestamp: string;
+  type: "info" | "success" | "warn" | "error";
+  message: string;
+}
 
-  const provider = new ethers.JsonRpcProvider(RPC_URL);
-  const wallet = new ethers.Wallet(PRIVATE_KEY!, provider);
+const botState = {
+  online: true,
+  status: "standby" as "standby" | "active" | "error",
+  walletAddress: "",
+  tokenAddress: currentConfig.tokenAddress,
+  curveAddress: currentConfig.curveAddress,
+  claimThresholdETH: currentConfig.claimThresholdETH,
+  escrowBalanceETH: "0.0",
+  totalCyclesExecuted: 0,
+  lastCycleTime: "",
+  logs: [] as BotMemoryLog[]
+};
 
-  console.log("Operator Wallet :", wallet.address);
-  console.log("Token Target    :", TOKEN_ADDRESS);
-  console.log("Curve Target    :", CURVE_ADDRESS);
-  console.log("Min Claim Fee   :", CLAIM_THRESHOLD_ETH, "ETH");
+function addLog(type: "info" | "success" | "warn" | "error", message: string) {
+  const timestamp = new Date().toLocaleTimeString();
+  const logItem: BotMemoryLog = { timestamp, type, message };
+  botState.logs.unshift(logItem);
+  if (botState.logs.length > 50) botState.logs.pop();
+  console.log(`[${timestamp}] [${type.toUpperCase()}] ${message}`);
+}
 
-  const feeEscrow = new ethers.Contract(PONS_FEE_ESCROW, ESCROW_ABI, wallet);
-  const curve = new ethers.Contract(CURVE_ADDRESS!, CURVE_ABI, wallet);
-  const token = new ethers.Contract(TOKEN_ADDRESS!, ERC20_ABI, wallet);
+// Inisialisasi Wallet Web3
+let provider: ethers.JsonRpcProvider | null = null;
+let wallet: ethers.Wallet | null = null;
 
-  const tokenSymbol = await token.symbol().catch(() => "TOKEN");
-  let cycle = 1;
+function initWallet() {
+  try {
+    if (!currentConfig.privateKey) {
+      addLog("error", "CREATOR_PRIVATE_KEY belum diset di .env!");
+      return;
+    }
+    provider = new ethers.JsonRpcProvider(currentConfig.rpcUrl);
+    wallet = new ethers.Wallet(currentConfig.privateKey, provider);
+    botState.walletAddress = wallet.address;
+    addLog("info", `Operator Wallet aktif: ${wallet.address}`);
+  } catch (e: any) {
+    addLog("error", `Gagal inisialisasi wallet: ${e.message}`);
+  }
+}
 
-  async function checkCycle() {
-    try {
-      const now = new Date().toLocaleTimeString();
-      console.log(`\n[${now}] [Siklus #${cycle}] Mengecek saldo di Fee Escrow...`);
+initWallet();
 
-      const claimableWei = await feeEscrow.balanceOf(wallet.address);
-      const claimableETH = ethers.formatEther(claimableWei);
-      console.log(`  -> Fee Terkumpul di Escrow: ${claimableETH} ETH`);
+// Validasi apakah Token Address valid
+function isValidAddress(addr?: string): boolean {
+  if (!addr) return false;
+  const c = addr.trim().toLowerCase();
+  return c !== "none" && c !== "" && ethers.isAddress(c);
+}
 
-      const thresholdWei = ethers.parseEther(CLAIM_THRESHOLD_ETH);
+// Siklus Flywheel
+let isExecuting = false;
 
-      if (claimableWei >= thresholdWei) {
-        console.log(`\n⚡ AMBANG BATAS TERCAPAI (${claimableETH} ETH >= ${CLAIM_THRESHOLD_ETH} ETH)`);
-        console.log(`🔥 MEMULAI EKSEKUSI SIKLUS FLYWHEEL...`);
+async function executeCycle() {
+  if (isExecuting) {
+    addLog("warn", "Siklus sedang berjalan, melewatkan iterasi ini.");
+    return;
+  }
 
-        // TAHAP 1: CLAIM FEE
-        console.log(`  [1/3] Mengklaim ${claimableETH} ETH dari Pons Fee Escrow...`);
-        const claimTx = await feeEscrow.claim();
-        console.log(`  Tx Claim terkirim: ${claimTx.hash}`);
-        await claimTx.wait();
-        console.log(`  ✅ Fee berhasil diklaim ke dompet!`);
+  botState.tokenAddress = currentConfig.tokenAddress;
+  botState.curveAddress = currentConfig.curveAddress;
+  botState.claimThresholdETH = currentConfig.claimThresholdETH;
 
-        // TAHAP 2: BUYBACK TOKEN DI CURVE
-        console.log(`  [2/3] Mengeksekusi buyback di Pons Curve menggunakan ${claimableETH} ETH...`);
-        const isGraduated = await curve.graduated().catch(() => false);
+  if (!isValidAddress(currentConfig.tokenAddress)) {
+    botState.status = "standby";
+    addLog("warn", "STANDBY: Token CA belum diset (bernilai 'none'). Buka /memex untuk memasukkan CA.");
+    return;
+  }
 
-        if (isGraduated) {
-          console.log(`  Token telah lulus (graduated) ke Uniswap v4 pool.`);
-        } else {
-          // Beli langsung via curve
-          const buyTx = await curve.buy(claimableWei, 0n, wallet.address, {
-            value: claimableWei
-          });
-          console.log(`  Tx Buyback terkirim: ${buyTx.hash}`);
-          await buyTx.wait();
-          console.log(`  ✅ Buyback selesai!`);
-        }
+  if (!isValidAddress(currentConfig.curveAddress)) {
+    botState.status = "standby";
+    addLog("warn", "STANDBY: Curve Address belum valid.");
+    return;
+  }
 
-        // TAHAP 3: BURN KE DEAD ADDRESS
-        const tokenBalance = await token.balanceOf(wallet.address);
-        console.log(`  [3/3] Membakar ${ethers.formatUnits(tokenBalance, 18)} $${tokenSymbol} ke dead address...`);
+  if (!wallet || !provider) {
+    botState.status = "error";
+    addLog("error", "Wallet atau RPC Provider tidak siap.");
+    return;
+  }
 
-        const burnTx = await token.transfer(DEAD_ADDRESS, tokenBalance);
-        console.log(`  Tx Burn terkirim: ${burnTx.hash}`);
-        await burnTx.wait();
-        console.log(`  🔥 TOKEN BERHASIL DIMUSNAHKAN KE ${DEAD_ADDRESS}!`);
+  isExecuting = true;
+  botState.status = "active";
 
-        cycle++;
-        console.log(`  🎉 Siklus Flywheel #${cycle - 1} tuntas! Kembali memantau fee...\n`);
+  try {
+    const feeEscrow = new ethers.Contract(PONS_FEE_ESCROW, ESCROW_ABI, wallet);
+    const curve = new ethers.Contract(currentConfig.curveAddress, CURVE_ABI, wallet);
+    const token = new ethers.Contract(currentConfig.tokenAddress, ERC20_ABI, wallet);
+
+    // Cek Fee Escrow
+    const claimableWei: bigint = await feeEscrow.balanceOf(wallet.address);
+    const claimableETH = ethers.formatEther(claimableWei);
+    botState.escrowBalanceETH = claimableETH;
+    botState.lastCycleTime = new Date().toLocaleTimeString();
+
+    addLog("info", `Cek Escrow Fee: ${claimableETH} ETH (Ambang batas: ${currentConfig.claimThresholdETH} ETH)`);
+
+    const thresholdWei = ethers.parseEther(currentConfig.claimThresholdETH);
+
+    if (claimableWei >= thresholdWei && claimableWei > 0n) {
+      addLog("success", `⚡ AMBANG BATAS TERCAPAI (${claimableETH} ETH >= ${currentConfig.claimThresholdETH} ETH). Memulai Flywheel!`);
+
+      // 1. CLAIM
+      addLog("info", `[1/3] Mengklaim ${claimableETH} ETH dari Pons Escrow...`);
+      const claimTx = await feeEscrow.claim();
+      addLog("info", `Tx Claim terkirim: ${claimTx.hash}`);
+      await claimTx.wait();
+      addLog("success", "Fee berhasil diklaim ke dompet!");
+
+      // 2. BUYBACK DI CURVE
+      addLog("info", `[2/3] Mengeksekusi Buyback di Curve DEX (${claimableETH} ETH)...`);
+      const isGraduated = await curve.graduated().catch(() => false);
+
+      if (isGraduated) {
+        addLog("warn", "Token sudah lulus (graduated) ke Uniswap v4 pool.");
       } else {
-        console.log(`  (Fee belum mencapai threshold ${CLAIM_THRESHOLD_ETH} ETH. Menunggu volume...)`);
+        const buyTx = await curve.buy(claimableWei, 0n, wallet.address, {
+          value: claimableWei
+        });
+        addLog("info", `Tx Buyback terkirim: ${buyTx.hash}`);
+        await buyTx.wait();
+        addLog("success", "Buyback di Curve berhasil!");
       }
-    } catch (err: any) {
-      console.error("  ❌ Terjadi kesalahan pada siklus:", err.message || err);
+
+      // 3. BURN TOKEN
+      const tokenSymbol = await token.symbol().catch(() => "HOT");
+      const tokenBalance: bigint = await token.balanceOf(wallet.address);
+      const formattedBalance = ethers.formatUnits(tokenBalance, 18);
+
+      addLog("info", `[3/3] Membakar ${formattedBalance} $${tokenSymbol} ke DEAD_ADDRESS...`);
+      const burnTx = await token.transfer(DEAD_ADDRESS, tokenBalance);
+      addLog("info", `Tx Burn terkirim: ${burnTx.hash}`);
+      await burnTx.wait();
+      addLog("success", `🔥 SELESAI: ${formattedBalance} $${tokenSymbol} TELAH DIBUMI-HANGUSKAN!`);
+
+      botState.totalCyclesExecuted++;
+    }
+  } catch (err: any) {
+    addLog("error", `Terjadi kesalahan siklus: ${err.message || err}`);
+  } finally {
+    isExecuting = false;
+  }
+}
+
+// Loop berulang
+setInterval(() => {
+  executeCycle().catch((e) => addLog("error", `Loop error: ${e.message}`));
+}, currentConfig.pollIntervalSeconds * 1000);
+
+// Pengecekan pertama kali jalan
+executeCycle().catch(console.error);
+
+// -------------------------------------------------------------
+// NATIVE HTTP API SERVER (Untuk komunikasi langsung dengan /memex)
+// -------------------------------------------------------------
+function sendJSON(res: http.ServerResponse, status: number, data: any) {
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-admin-secret"
+  });
+  res.end(JSON.stringify(data));
+}
+
+const server = http.createServer(async (req, res) => {
+  // Tangani preflight OPTIONS
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, x-admin-secret"
+    });
+    res.end();
+    return;
+  }
+
+  const url = req.url || "/";
+
+  // Endpoint 1: GET /api/status
+  if (req.method === "GET" && (url === "/api/status" || url === "/api/status/")) {
+    return sendJSON(res, 200, {
+      success: true,
+      data: {
+        online: true,
+        status: botState.status,
+        walletAddress: botState.walletAddress,
+        tokenAddress: currentConfig.tokenAddress,
+        curveAddress: currentConfig.curveAddress,
+        claimThresholdETH: currentConfig.claimThresholdETH,
+        escrowBalanceETH: botState.escrowBalanceETH,
+        totalCyclesExecuted: botState.totalCyclesExecuted,
+        lastCycleTime: botState.lastCycleTime,
+        pollIntervalSeconds: currentConfig.pollIntervalSeconds,
+        logs: botState.logs
+      }
+    });
+  }
+
+  // Helper untuk membaca body JSON
+  const readBody = (): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+        if (body.length > 1e6) req.destroy(); // 1MB limit
+      });
+      req.on("end", () => {
+        try {
+          resolve(body ? JSON.parse(body) : {});
+        } catch (e) {
+          reject(e);
+        }
+      });
+      req.on("error", reject);
+    });
+  };
+
+  // Endpoint 2: POST /api/config (Update token & settings dari /memex)
+  if (req.method === "POST" && (url === "/api/config" || url === "/api/config/")) {
+    try {
+      const body = await readBody();
+      const secret = body.password || req.headers["x-admin-secret"];
+
+      if (secret !== ADMIN_SECRET) {
+        return sendJSON(res, 401, { success: false, error: "Password Admin salah!" });
+      }
+
+      const updates: any = {};
+      if (body.tokenAddress !== undefined) updates.tokenAddress = body.tokenAddress.trim();
+      if (body.curveAddress !== undefined) updates.curveAddress = body.curveAddress.trim();
+      if (body.claimThresholdETH !== undefined) updates.claimThresholdETH = String(body.claimThresholdETH).trim();
+      if (body.pollIntervalSeconds !== undefined) updates.pollIntervalSeconds = parseInt(body.pollIntervalSeconds, 10);
+
+      // Simpan perubahan ke file
+      saveConfigToFile(updates);
+
+      addLog("success", `[MEMEX SYNC] Pengaturan diperbarui dari panel /memex! Token CA: ${currentConfig.tokenAddress}`);
+
+      // Langsung picu siklus evaluasi
+      setTimeout(() => {
+        executeCycle().catch(console.error);
+      }, 500);
+
+      return sendJSON(res, 200, {
+        success: true,
+        message: "Konfigurasi bot berhasil diperbarui!",
+        data: {
+          tokenAddress: currentConfig.tokenAddress,
+          curveAddress: currentConfig.curveAddress,
+          status: isValidAddress(currentConfig.tokenAddress) ? "active" : "standby"
+        }
+      });
+    } catch (e: any) {
+      return sendJSON(res, 400, { success: false, error: e.message || "Invalid JSON payload" });
     }
   }
 
-  // Jalankan pengecekan pertama dan set interval berulang
-  await checkCycle();
-  setInterval(checkCycle, POLL_INTERVAL_SECONDS * 1000);
-}
+  // Endpoint 3: POST /api/trigger (Manual Trigger dari /memex)
+  if (req.method === "POST" && (url === "/api/trigger" || url === "/api/trigger/")) {
+    try {
+      const body = await readBody();
+      const secret = body.password || req.headers["x-admin-secret"];
 
-runFlywheel().catch(console.error);
+      if (secret !== ADMIN_SECRET) {
+        return sendJSON(res, 401, { success: false, error: "Password Admin salah!" });
+      }
+
+      addLog("info", "[MANUAL] Siklus dipicu manual dari panel /memex.");
+      executeCycle().catch(console.error);
+
+      return sendJSON(res, 200, { success: true, message: "Siklus manual sedang dieksekusi!" });
+    } catch (e: any) {
+      return sendJSON(res, 400, { success: false, error: e.message });
+    }
+  }
+
+  // Default 404
+  return sendJSON(res, 404, { success: false, error: "Not Found" });
+});
+
+const PORT = currentConfig.port;
+server.listen(PORT, "0.0.0.0", () => {
+  console.log("==========================================================");
+  console.log(`🚀 HOT AUTONOMOUS FLYWHEEL & API SERVER AKTIF`);
+  console.log(`   Port Server      : ${PORT}`);
+  console.log(`   Admin API Ready  : http://localhost:${PORT}/api/status`);
+  console.log(`   Operator Wallet  : ${botState.walletAddress || "Belum siap"}`);
+  console.log(`   Status Awal      : ${isValidAddress(currentConfig.tokenAddress) ? "ACTIVE" : "STANDBY (Menunggu CA dari /memex)"}`);
+  console.log("==========================================================");
+});

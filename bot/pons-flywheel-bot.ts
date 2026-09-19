@@ -233,7 +233,8 @@ async function executeCycle() {
 
       // 1. CLAIM
       addLog("info", `[1/3] Mengklaim ${claimableETH} ETH dari Pons Escrow...`);
-      const claimTx = await feeEscrow.claim();
+      const claimNonce = await provider.getTransactionCount(wallet.address, "latest");
+      const claimTx = await feeEscrow.claim({ nonce: claimNonce });
       addLog("info", `Tx Claim terkirim: ${claimTx.hash}`);
       await claimTx.wait();
       addLog("success", "Fee berhasil diklaim ke dompet!");
@@ -254,8 +255,10 @@ async function executeCycle() {
           buyAmountWei = walletBal - gasBuffer;
         }
 
+        const buyNonce = await provider.getTransactionCount(wallet.address, "latest");
         const buyTx = await curve.buy(buyAmountWei, 0n, wallet.address, {
-          value: buyAmountWei
+          value: buyAmountWei,
+          nonce: buyNonce
         });
         addLog("info", `Tx Buyback terkirim: ${buyTx.hash}`);
         await buyTx.wait();
@@ -268,7 +271,8 @@ async function executeCycle() {
       const formattedBalance = ethers.formatUnits(tokenBalance, 18);
 
       addLog("info", `[3/3] Membakar ${formattedBalance} $${tokenSymbol} ke DEAD_ADDRESS...`);
-      const burnTx = await token.transfer(DEAD_ADDRESS, tokenBalance);
+      const burnNonce = await provider.getTransactionCount(wallet.address, "latest");
+      const burnTx = await token.transfer(DEAD_ADDRESS, tokenBalance, { nonce: burnNonce });
       addLog("info", `Tx Burn terkirim: ${burnTx.hash}`);
       await burnTx.wait();
       addLog("success", `🔥 SELESAI: ${formattedBalance} $${tokenSymbol} TELAH DIBUMI-HANGUSKAN!`);

@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Patrick Hand', cursive, sans-serif;
+    background-color: #0f141d;
+    background-image: 
+      linear-gradient(rgba(30, 41, 59, 0.4) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(30, 41, 59, 0.4) 1px, transparent 1px);
+    background-size: 24px 24px;
+    letter-spacing: 0.02em;
+  }
+
+  h1, h2, h3, h4, .font-sketch {
+    font-family: 'Architects Daughter', cursive;
+  }
+
+  .font-hand {
+    font-family: 'Patrick Hand', cursive;
+  }
+
+  .font-doodle {
+    font-family: 'Caveat', cursive;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Hand-Drawn Wobbly Borders */
+.sketch-box {
+  border: 2px solid #334155;
+  border-radius: 255px 15px 225px 15px/15px 225px 15px 255px;
+  box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.5);
+  transition: all 0.2s ease;
+}
+
+.sketch-box:hover {
+  border-color: #64748b;
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0px rgba(0, 0, 0, 0.6);
+}
+
+.sketch-card {
+  background: #18202c;
+  border: 2px solid #334155;
+  border-radius: 20px 250px 25px 240px/240px 25px 250px 20px;
+  box-shadow: 4px 4px 0px #0b0f16;
+}
+
+.sketch-btn {
+  border: 2px solid currentColor;
+  border-radius: 255px 25px 225px 25px/25px 225px 25px 255px;
+  box-shadow: 3px 3px 0px rgba(0, 0, 0, 0.6);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sketch-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px rgba(0, 0, 0, 0.6);
+}
+
+/* Marker highlighter effect */
+.marker-yellow {
+  background: linear-gradient(120deg, rgba(251, 191, 36, 0.25) 0%, rgba(251, 191, 36, 0.35) 100%);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.marker-cyan {
+  background: linear-gradient(120deg, rgba(34, 211, 238, 0.25) 0%, rgba(34, 211, 238, 0.35) 100%);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.marker-rose {
+  background: linear-gradient(120deg, rgba(244, 63, 94, 0.25) 0%, rgba(244, 63, 94, 0.35) 100%);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.marker-emerald {
+  background: linear-gradient(120deg, rgba(52, 211, 153, 0.25) 0%, rgba(52, 211, 153, 0.35) 100%);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+/* Wobbly circle helper */
+.sketch-circle {
+  border-radius: 50% 48% 52% 49% / 49% 51% 49% 51%;
+}
+
+/* Rotations */
+@keyframes sketch-wobble {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(1deg);
+  }
+  75% {
+    transform: rotate(-1deg);
+  }
+}
+
+.animate-wobble {
+  animation: sketch-wobble 4s ease-in-out infinite;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0f141d;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+  border: 1px solid #1e293b;
+}

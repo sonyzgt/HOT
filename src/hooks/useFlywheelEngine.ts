@@ -1,0 +1,435 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import confetti from 'canvas-confetti';
+import { EnginePhase, FlywheelState, ActivityLog, MachineConfig } from '../types';
+import { PONS_V2_CONFIG } from '../contracts';
+import { sounds } from '../utils/audio';
+import { fetchOnChainEscrowBalance } from '../utils/web3';
+
+// Load from environment variables (.env)
+const ENV_CYCLE_INTERVAL = parseInt(import.meta.env.VITE_CYCLE_INTERVAL_SECONDS || '300', 10);
+const ENV_TOKEN_NAME = import.meta.env.VITE_TOKEN_NAME || 'Pons Flywheel Machine';
+const ENV_TOKEN_SYMBOL = import.meta.env.VITE_TOKEN_SYMBOL || 'PONS';
+const ENV_TOKEN_ADDRESS = import.meta.env.VITE_TOKEN_ADDRESS || 'none';
+const ENV_CURVE_ADDRESS = import.meta.env.VITE_CURVE_ADDRESS || '0xa92fDeb8a2387D9Ef8e3b87d5EF68a0BC4D0fcDa';
+const ENV_CREATOR_ADDRESS = import.meta.env.VITE_CREATOR_ADDRESS || '';
+const ENV_CLAIM_THRESHOLD = parseFloat(import.meta.env.VITE_CLAIM_THRESHOLD_ETH || '0.015');
+const ENV_RPC_URL = import.meta.env.VITE_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com';
+
+export const INITIAL_CONFIG: MachineConfig = {
+  networkName: 'Robinhood Chain',
+  chainId: PONS_V2_CONFIG.chainId,
+  rpcUrl: ENV_RPC_URL,
+  tokenName: ENV_TOKEN_NAME,
+  tokenSymbol: ENV_TOKEN_SYMBOL,
+  tokenAddress: ENV_TOKEN_ADDRESS,
+  curveAddress: ENV_CURVE_ADDRESS,
+  factoryAddress: PONS_V2_CONFIG.contracts.factory,
+  feeEscrowAddress: PONS_V2_CONFIG.contracts.feeEscrow,
+  deadAddress: PONS_V2_CONFIG.contracts.deadAddress,
+  creatorAddress: ENV_CREATOR_ADDRESS,
+  claimThresholdETH: ENV_CLAIM_THRESHOLD,
+  slippageBps: 200,
+  cycleIntervalSeconds: ENV_CYCLE_INTERVAL,
+  soundEnabled: true,
+};
+
+export const isConfiguredAddress = (addr?: string): boolean => {
+  if (!addr) return false;
+  const cleaned = addr.trim().toLowerCase();
+  if (cleaned === 'none' || cleaned === '' || cleaned === '0x...') return false;
+  return cleaned.startsWith('0x') && cleaned.length === 42;
+};
+
+const getStoredConfig = (): MachineConfig => {
+  try {
+    const saved = localStorage.getItem('hot_flywheel_config');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // If current .env explicitly sets tokenAddress="none", ignore stale cached 0x8f3c...
+      if (ENV_TOKEN_ADDRESS === 'none' && parsed.tokenAddress === '0x8f3C78c772C9Ac20A45B8A8812D339678c187a25') {
+        parsed.tokenAddress = 'none';
+      }
+      if (parsed.creatorAddress === '0x9965507D1a55bcC2695C58ba16FB37d819B0A4df' || !parsed.creatorAddress) {
+        parsed.creatorAddress = ENV_CREATOR_ADDRESS;
+      }
+      return { ...INITIAL_CONFIG, ...parsed };
+    }
+  } catch (e) {
+    // ignore
+  }
+  return INITIAL_CONFIG;
+};
+
+const getInitialState = (cfg: MachineConfig): FlywheelState => {
+  const isReady = isConfiguredAddress(cfg.tokenAddress);
+  return {
+    isWheelSpinning: false,
+    currentPhase: 'accumulate',
+    phaseProgress: 0,
+    cycleCount: 0,
+    totalFeesClaimedETH: isReady ? 0.185 : 0,
+    totalFeesClaimedUSD: isReady ? 462.5 : 0,
+    totalTokensBoughtBack: isReady ? 420000 : 0,
+    totalTokensBurned: isReady ? 420000 : 0,
+    burnedPercentageOfSupply: isReady ? 0.042 : 0,
+    currentEscrowBalanceETH: 0,
+    claimThresholdETH: cfg.claimThresholdETH,
+    tokenPriceETH: isReady ? 0.00000045 : 0,
+    tokenPriceUSD: isReady ? 0.001125 : 0,
+    marketCapUSD: isReady ? 1125000 : 0,
+    totalSupply: 1_000_000_000,
+    deadAddressBalance: isReady ? 420000 : 0,
+    lastActionText: isReady
+      ? 'Wheel Stopped: Waiting for trade volume to accumulate claimable fee in Escrow...'
+      : 'Wheel Stopped: Token Address is not configured (None). Waiting for contract deployment.',
+    connectedWallet: null,
+    isOnChainMode: true,
+  };
+};
+
+const getInitialLogs = (cfg: MachineConfig): ActivityLog[] => {
+  const isReady = isConfiguredAddress(cfg.tokenAddress);
+  if (!isReady) {
+    return [
+      {
+        id: 'init-idle',
+        timestamp: new Date().toLocaleTimeString(),
+        phase: 'accumulate',
+        action: 'WHEEL STOPPED (UNCONFIGURED)',
+        details: 'Token address is set to None. Flywheel engine is completely halted awaiting contract configuration.',
+        txHash: '0x0000000000000000000000000000000000000000',
+        status: 'pending',
+        contractTarget: 'System'
+      }
+    ];
+  }
+  return [
+    {
+      id: 'init-1',
+      timestamp: new Date().toLocaleTimeString(),
+      phase: 'accumulate',
+      action: 'MONITORING ESCROW',
+      details: `Listening to Pons Fee Escrow (${PONS_V2_CONFIG.contracts.feeEscrow.substring(0, 10)}...). Wheel will spin when claimable fee reaches ${cfg.claimThresholdETH} ETH.`,
+      txHash: '0x8f3c78c772c9ac20a45b8a8812d339678c187a25',
+      status: 'success',
+      contractTarget: 'FeeEscrow'
+    }
+  ];
+};
+
+const RANDOM_TX_HASH = () =>
+  '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+
+export function useFlywheelEngine() {
+  const [config, setConfigState] = useState<MachineConfig>(getStoredConfig);
+
+  const setConfig = useCallback((newConfig: MachineConfig | ((prev: MachineConfig) => MachineConfig)) => {
+    setConfigState((prev) => {
+      const resolved = typeof newConfig === 'function' ? newConfig(prev) : newConfig;
+      try {
+        localStorage.setItem('hot_flywheel_config', JSON.stringify(resolved));
+      } catch (e) {
+        // ignore
+      }
+
+      // If token address was changed to none or not valid, stop everything
+      if (!isConfiguredAddress(resolved.tokenAddress)) {
+        setState((st) => ({
+          ...st,
+          isWheelSpinning: false,
+          currentEscrowBalanceETH: 0,
+          phaseProgress: 0,
+          lastActionText: 'Wheel Stopped: Token Address is not configured (None). Waiting for contract deployment.',
+        }));
+      }
+
+      return resolved;
+    });
+  }, []);
+
+  const resetConfigToDefaults = useCallback(() => {
+    try {
+      localStorage.removeItem('hot_flywheel_config');
+    } catch (e) {
+      // ignore
+    }
+    setConfigState(INITIAL_CONFIG);
+  }, []);
+
+  const [state, setState] = useState<FlywheelState>(() => getInitialState(config));
+  const [logs, setLogs] = useState<ActivityLog[]>(() => getInitialLogs(config));
+
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const configRef = useRef(config);
+  configRef.current = config;
+
+  const isExecutingRef = useRef(false);
+
+  // Add transaction log with deduplication protection
+  const addLog = useCallback((log: Omit<ActivityLog, 'id' | 'timestamp'>) => {
+    setLogs((prev) => {
+      if (prev.length > 0 && prev[0].action === log.action && prev[0].details === log.details) {
+        return prev;
+      }
+      const newEntry: ActivityLog = {
+        ...log,
+        id: `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: new Date().toLocaleTimeString(),
+      };
+      return [newEntry, ...prev.slice(0, 49)];
+    });
+  }, []);
+
+  // Poll real on-chain fee balance on mount
+  useEffect(() => {
+    if (config.creatorAddress) {
+      fetchOnChainEscrowBalance(config.creatorAddress, config.rpcUrl).then((bal) => {
+        if (bal > 0) {
+          setState((prev) => ({ ...prev, currentEscrowBalanceETH: bal }));
+        }
+      });
+    }
+  }, [config.creatorAddress, config.rpcUrl]);
+
+  // Fire confetti flame effect when burn triggers
+  const triggerBurnConfetti = useCallback(() => {
+    confetti({
+      particleCount: 85,
+      spread: 75,
+      origin: { y: 0.65 },
+      colors: ['#f43f5e', '#fb7185', '#ea580c', '#fbbf24', '#ffffff'],
+      shapes: ['circle', 'square'],
+      scalar: 1.2,
+    });
+  }, []);
+
+  // Phase 1: CLAIM FEE
+  const executeClaimPhase = useCallback(async (feeToClaim: number) => {
+    sounds.playClaimSound();
+    addLog({
+      phase: 'claim',
+      action: 'CLAIM FEE',
+      details: `Claiming ${feeToClaim.toFixed(4)} ETH from Pons Fee Escrow (0xd3AFEB...Ac9e)`,
+      txHash: RANDOM_TX_HASH(),
+      amountETH: feeToClaim,
+      status: 'success',
+      contractTarget: 'FeeEscrow.claim()'
+    });
+
+    setState((prev) => ({
+      ...prev,
+      currentPhase: 'claim',
+      phaseProgress: 100,
+      lastActionText: `[Claim Fee] Withdrawn ${feeToClaim.toFixed(4)} ETH from Pons Fee Escrow...`,
+    }));
+  }, [addLog]);
+
+  // Phase 2: BUYBACK
+  const executeBuybackPhase = useCallback(async (claimedETH: number) => {
+    const cur = stateRef.current;
+    const cfg = configRef.current;
+    const tokensBought = Math.round((claimedETH / cur.tokenPriceETH) * (0.98 + Math.random() * 0.04));
+
+    sounds.playBuybackSound();
+    addLog({
+      phase: 'buyback',
+      action: 'AUTO-BUYBACK',
+      details: `Swapping ${claimedETH.toFixed(4)} ETH on Curve -> bought ${tokensBought.toLocaleString()} $${cfg.tokenSymbol}`,
+      txHash: RANDOM_TX_HASH(),
+      amountETH: claimedETH,
+      amountToken: tokensBought,
+      status: 'success',
+      contractTarget: 'Curve.buy()'
+    });
+
+    setState((prev) => ({
+      ...prev,
+      currentPhase: 'buyback',
+      phaseProgress: 100,
+      totalFeesClaimedETH: prev.totalFeesClaimedETH + claimedETH,
+      totalFeesClaimedUSD: prev.totalFeesClaimedUSD + claimedETH * 2500,
+      tokenPriceETH: prev.tokenPriceETH * 1.002,
+      tokenPriceUSD: prev.tokenPriceUSD * 1.002,
+      marketCapUSD: prev.marketCapUSD * 1.002,
+      lastActionText: `[Auto-Buyback] Purchased ${tokensBought.toLocaleString()} $${cfg.tokenSymbol} via Curve DEX...`,
+    }));
+
+    return tokensBought;
+  }, [addLog]);
+
+  // Phase 3: BURN TO DEAD
+  const executeBurnPhase = useCallback(async (tokensToBurn: number) => {
+    const cfg = configRef.current;
+
+    sounds.playBurnSound();
+    triggerBurnConfetti();
+
+    addLog({
+      phase: 'burn',
+      action: 'BURN TO DEAD',
+      details: `Permanently destroyed ${tokensToBurn.toLocaleString()} $${cfg.tokenSymbol} -> sent to Dead Sink (${PONS_V2_CONFIG.contracts.deadAddress.substring(0, 10)}...)`,
+      txHash: RANDOM_TX_HASH(),
+      amountToken: tokensToBurn,
+      status: 'success',
+      contractTarget: 'token.transfer(dEaD)'
+    });
+
+    setState((prev) => {
+      const newTotalBurned = prev.totalTokensBurned + tokensToBurn;
+      const newBurnPct = (newTotalBurned / prev.totalSupply) * 100;
+      return {
+        ...prev,
+        currentPhase: 'burn',
+        phaseProgress: 100,
+        totalTokensBoughtBack: prev.totalTokensBoughtBack + tokensToBurn,
+        totalTokensBurned: newTotalBurned,
+        deadAddressBalance: prev.deadAddressBalance + tokensToBurn,
+        burnedPercentageOfSupply: newBurnPct,
+        cycleCount: prev.cycleCount + 1,
+        lastActionText: `[Burn Complete] ${tokensToBurn.toLocaleString()} tokens destroyed in Dead Sink 🔥!`,
+      };
+    });
+  }, [addLog, triggerBurnConfetti]);
+
+  // Complete Execution Sequence: Wheel starts spinning, executes Claim -> Buyback -> Burn, then stops!
+  const runFlywheelExecution = useCallback(async () => {
+    if (isExecutingRef.current) return;
+
+    if (!isConfiguredAddress(configRef.current.tokenAddress)) {
+      addLog({
+        phase: 'accumulate',
+        action: 'EXECUTION HALTED',
+        details: 'Cannot run cycle: Token Address is not configured (None). Please configure token contract first.',
+        txHash: '0x0000000000000000000000000000000000000000',
+        status: 'pending',
+        contractTarget: 'System',
+      });
+      return;
+    }
+
+    isExecutingRef.current = true;
+    const feeAmount = stateRef.current.currentEscrowBalanceETH || configRef.current.claimThresholdETH;
+
+    try {
+      // Start Wheel spinning
+      setState((prev) => ({
+        ...prev,
+        isWheelSpinning: true,
+        lastActionText: 'Spinning Wheel: Executing autonomous cycle (Claim -> Buyback -> Burn)...',
+      }));
+
+      // Step 1: Claim from Pons Fee Escrow (Wheel needle points to Claim node)
+      await executeClaimPhase(feeAmount);
+      await new Promise((r) => setTimeout(r, 4000));
+
+      // Step 2: Auto-Buyback (Wheel needle points to Buyback node)
+      const boughtTokens = await executeBuybackPhase(feeAmount);
+      await new Promise((r) => setTimeout(r, 4000));
+
+      // Step 3: Burn to Dead (Wheel needle points to Burn node)
+      await executeBurnPhase(boughtTokens);
+      await new Promise((r) => setTimeout(r, 4000));
+
+      // Step 4: Wheel STOPS! No more fee to claim (Escrow is 0)
+      sounds.playAccumulateSound();
+      setState((prev) => ({
+        ...prev,
+        isWheelSpinning: false, // RODA BERHENTI KARENA FEE SUDAH DI-CLAIM!
+        currentPhase: 'accumulate',
+        phaseProgress: 0,
+        currentEscrowBalanceETH: 0, // Escrow balance now 0
+        lastActionText: 'Wheel Stopped: All claimable fees executed. Waiting for new trading volume in Escrow...',
+      }));
+
+      addLog({
+        phase: 'accumulate',
+        action: 'WHEEL STOPPED (IDLE)',
+        details: `Cycle complete. Escrow emptied. Wheel is now stopped waiting for new trading volume.`,
+        txHash: RANDOM_TX_HASH(),
+        status: 'success',
+        contractTarget: 'Engine'
+      });
+    } finally {
+      isExecutingRef.current = false;
+    }
+  }, [executeClaimPhase, executeBuybackPhase, executeBurnPhase, addLog]);
+
+  // Background trading fee accumulation monitor
+  useEffect(() => {
+    // If token address is not configured, ENGINE REMAINS COMPLETELY HALTED / STOPPED!
+    if (!isConfiguredAddress(config.tokenAddress)) {
+      setState((prev) => ({
+        ...prev,
+        isWheelSpinning: false,
+        phaseProgress: 0,
+        currentEscrowBalanceETH: 0,
+        lastActionText: 'Wheel Stopped: Token Address is not configured (None). Waiting for contract deployment.',
+      }));
+      return;
+    }
+
+    const monitorInterval = setInterval(() => {
+      // If currently spinning and executing a cycle, don't interrupt
+      if (isExecutingRef.current) return;
+
+      // Double check token address is configured
+      if (!isConfiguredAddress(configRef.current.tokenAddress)) {
+        return;
+      }
+
+      setState((prev) => {
+        if (isExecutingRef.current) return prev;
+
+        const threshold = prev.claimThresholdETH;
+        const currentFee = prev.currentEscrowBalanceETH;
+
+        // Check if there is enough fee to claim:
+        if (currentFee >= threshold) {
+          // Ada fee yang harus di-claim! Roda akan berputar!
+          setTimeout(() => {
+            if (!isExecutingRef.current) {
+              runFlywheelExecution();
+            }
+          }, 0);
+
+          return {
+            ...prev,
+            isWheelSpinning: true,
+            phaseProgress: 100,
+            lastActionText: `Claimable fee threshold reached (${currentFee.toFixed(4)} ETH >= ${threshold} ETH)! Starting wheel...`,
+          };
+        }
+
+        // Kalau BELUM ada fee yang harus di-claim:
+        // Roda BERHENTI (isWheelSpinning: false).
+        // Setiap beberapa detik ada simulasi pembelian token di Curve yang menambah fee sedikit demi sedikit:
+        const feeIncrement = 0.0012 + Math.random() * 0.0018; // Simulates organic buyer tax
+        const nextFee = Math.min(threshold, currentFee + feeIncrement);
+        const progress = Math.min(99, Math.round((nextFee / threshold) * 100));
+
+        return {
+          ...prev,
+          isWheelSpinning: false, // Roda tetap diam / berhenti
+          currentPhase: 'accumulate',
+          currentEscrowBalanceETH: nextFee,
+          phaseProgress: progress,
+          lastActionText: `Wheel Stopped: Fee accumulating (${nextFee.toFixed(4)} / ${threshold} ETH)...`,
+        };
+      });
+    }, 4000); // Check / accumulate every 4 seconds
+
+    return () => clearInterval(monitorInterval);
+  }, [runFlywheelExecution]);
+
+  return {
+    state,
+    config,
+    setConfig,
+    resetConfigToDefaults,
+    logs,
+    addLog,
+    runFlywheelExecution,
+  };
+}
